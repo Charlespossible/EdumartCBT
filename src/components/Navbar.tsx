@@ -1,172 +1,198 @@
-import React, { useState, useEffect } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import React, { useState, useEffect, useContext, useCallback } from "react";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import EdumartLogo from "../assets/images/EdumartLogo.png";
+import { AuthContext } from "../context/AuthContext";
+
+// Type definition for navigation items
+interface NavItem {
+  name: string;
+  path: string;
+  disabled?: boolean;
+  highlight?: boolean;
+}
 
 const Navbar: React.FC = () => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [userFirstName, setUserFirstName] = useState("");
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
+  const authContext = useContext(AuthContext);
 
+  if (!authContext) {
+    throw new Error("Navbar must be used within an AuthProvider");
+  }
+
+  const { user, logout } = authContext;
+
+  // Main navigation items
+  const navItems: NavItem[] = [
+    { name: "Home", path: "/" },
+    { name: "Common Entrance", path: "/commonentrance" },
+    { name: "JAMB/POST-UTME", path: "/uexam" },
+    { name: "WAEC/NECO", path: "/olevel" },
+    { name: "Junior WAEC", path: "/Jwaec" },
+    { name: "Professional Exams", path: "/proffesionalexams" },
+    { name: "Blog", path: "https://blog.edumartcbt.com" },
+    { name: "For Schools", path: "/schools", highlight: true },
+  ];
+
+  // Memoize user data retrieval
   useEffect(() => {
-    const userData = localStorage.getItem("user");
-    if (userData) {
-      const user = JSON.parse(userData);
-      setUserFirstName(user.firstName);
-      setIsLoggedIn(true);
-    } else {
-      setIsLoggedIn(false);
+    const getUserData = () => {
+      const userData = localStorage.getItem("user");
+      
+      if (userData && userData !== "undefined") { 
+        try {
+          const parsedUser = JSON.parse(userData);
+          setUserFirstName(parsedUser.firstName || "User");
+          setIsLoggedIn(true);
+        } catch (error) {
+          console.error("Failed to parse user data:", error);
+          setIsLoggedIn(false);
+          setUserFirstName("");
+        }
+      } else {
+        setIsLoggedIn(false);
+        setUserFirstName("");
+      }
+    };
+  
+    getUserData();
+  }, [user]);
+
+  // Close menus when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setIsUserMenuOpen(false);
+    };
+
+    setIsMenuOpen(false);
+
+    document.addEventListener("click", handleClickOutside);
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }, [location.pathname]);
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await logout();
+      setIsUserMenuOpen(false);
+      navigate("/");
+    } catch (error) {
+      console.error("Logout failed:", error);
     }
-  }, []);
+  }, [logout, navigate]);
 
-  const toggleMenu = () => {
-    setIsOpen(!isOpen);
-  };
-
-  const handleGetStarted = () => {
-    navigate("/login");
-  };
-
-  // Handle logout
-  const handleLogout = () => {
-    localStorage.removeItem("user");
-    setIsLoggedIn(false);
-    setUserFirstName("");
-    navigate("/login");
+  const handleUserMenuToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsUserMenuOpen(!isUserMenuOpen);
   };
 
   return (
-    <nav className="bg-[#97c966] shadow-md sticky top-0 z-50 h-24">
+    <nav className="bg-[#66934e] shadow-md sticky top-0 z-50">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-24">
+        <div className="flex justify-between items-center h-20">
           {/* Logo */}
-          <div className="flex items-center">
+          <div className="flex items-center flex-shrink-0">
             <NavLink to="/" className="flex items-center">
               <img
                 src={EdumartLogo}
-                alt="Project Logo"
-                className="h-11 w-auto object-contain"
+                alt="Edumart Logo"
+                className="h-10 w-auto object-contain"
               />
             </NavLink>
           </div>
 
-          {/* Desktop Menu */}
-          <div className="hidden md:flex space-x-12 items-center">
-            <NavLink
-              to="/"
-              className={({ isActive }) =>
-                `font-normal text-lg text-white hover:text-[#78846f] ${
-                  isActive ? "font-normal text-white" : ""
-                }`
-              }
-            >
-              Home
-            </NavLink>
-            <NavLink
-              to="/about"
-              className={({ isActive }) =>
-                `font-normal text-lg text-white hover:text-[#78846f]  ${
-                  isActive ? "font-normal text-white" : ""
-                }`
-              }
-            >
-              About
-            </NavLink>
-            <NavLink
-              to="/exam"
-              className={({ isActive }) =>
-                `font-normal text-lg text-white hover:text-[#78846f]  ${
-                  isActive ? "font-normal text-blue-500" : ""
-                }`
-              }
-            >
-              Exams
-            </NavLink>
-            <NavLink
-              to="/leaderboard"
-              className={({ isActive }) =>
-                `font-normal text-lg text-white hover:text-[#78846f]  ${
-                  isActive ? "font-normal text-blue-500" : ""
-                }`
-              }
-            >
-              LeaderBoard
-            </NavLink>
-            <NavLink
-              to="/pricing"
-              className={({ isActive }) =>
-                `font-normal text-lg text-white hover:text-[#78846f]  ${
-                  isActive ? "font-normal text-blue-500" : ""
-                }`
-              }
-            >
-              Pricing
-            </NavLink>
-            <NavLink
-              to="/contact"
-              className={({ isActive }) =>
-                `font-normal text-lg text-white hover:text-[#78846f]  ${
-                  isActive ? "font-normal text-blue-500" : ""
-                }`
-              }
-            >
-              Contact
-            </NavLink>
-
-            {/* Conditional Rendering based on login status */}
-            {isLoggedIn ? (
-              <div className="relative">
-                <div
-                  className="flex items-center space-x-2 cursor-pointer"
-                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+          {/* Desktop Menu - Adjusted spacing and text size */}
+          <div className="hidden lg:flex space-x-3 xl:space-x-5 items-center">
+            {navItems.map((item) => (
+              item.path.startsWith("http") ? (
+                <a
+                  key={item.path}
+                  href={item.path}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`text-sm xl:text-base font-medium text-white transition-colors duration-200 hover:text-gray-200 whitespace-nowrap ${
+                    item.highlight
+                      ? "bg-yellow-400 text-[#557a40] px-3 py-1.5 rounded-xl font-bold hover:bg-yellow-300 hover:text-[#557a40] shadow-md transform hover:-translate-y-1 transition-all"
+                      : ""
+                  }`}
                 >
-                  <span className="text-white font-semibold">
-                    {userFirstName}
-                  </span>
+                  {item.name}
+                </a>
+              ) : (
+                <NavLink
+                  key={item.path}
+                  to={item.disabled ? "#" : item.path}
+                  onClick={(e) => item.disabled && e.preventDefault()}
+                  className={({ isActive }) =>
+                    `text-sm xl:text-base font-medium text-white transition-colors duration-200 hover:text-gray-200 whitespace-nowrap ${
+                      isActive ? "border-b-2 border-white pb-1" : ""
+                    } ${item.disabled ? "opacity-60 cursor-not-allowed" : ""} ${
+                      item.highlight
+                        ? "bg-yellow-400 text-[#557a40] px-3 py-1.5 rounded-xl font-bold hover:bg-yellow-300 hover:text-[#557a40] shadow-md transform hover:-translate-y-1 transition-all"
+                        : ""
+                    }`
+                  }
+                  aria-disabled={item.disabled}
+                >
+                  {item.name}
+                </NavLink>
+              )
+            ))}
+
+            {/* User section */}
+            {isLoggedIn ? (
+              <div className="relative ml-2" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={handleUserMenuToggle}
+                  className="flex items-center space-x-2 text-white focus:outline-none"
+                  aria-expanded={isUserMenuOpen}
+                  aria-haspopup="true"
+                >
+                  <div className="h-8 w-8 rounded-full bg-white text-[#66934e] flex items-center justify-center font-semibold">
+                    {userFirstName.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="font-medium hidden xl:block text-sm">{userFirstName}</span>
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
+                    className={`h-4 w-4 transition-transform duration-200 ${isUserMenuOpen ? "rotate-180" : ""}`}
                     fill="none"
                     viewBox="0 0 24 24"
-                    strokeWidth={1.5}
                     stroke="currentColor"
-                    className="w-4 h-4 text-white"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M19.5 8.25l-7.5 7.5-7.5-7.5"
-                    />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
-                </div>
-                {isDropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10">
-                    <button
-                      onClick={() => {
-                        navigate("/dashboard");
-                        setIsDropdownOpen(false);
-                      }}
-                      className="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100"
-                    >
-                      Dashboard
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleLogout();
-                        setIsDropdownOpen(false);
-                      }}
-                      className="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100"
-                    >
-                      Logout
-                    </button>
+                </button>
+
+                {isUserMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                    <div className="py-1">
+                      <NavLink
+                        to="/dashboard"
+                        onClick={() => setIsUserMenuOpen(false)}
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        Dashboard
+                      </NavLink>
+                      <button
+                        onClick={handleLogout}
+                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        Logout
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
             ) : (
               <button
-                onClick={handleGetStarted}
-                className="bg-white text-[#97c966] font-semibold px-6 py-2 rounded-lg hover:bg-gray-100 transition duration-300"
+                onClick={() => navigate("/login")}
+                className="bg-white text-[#66934e] text-sm xl:text-base font-semibold px-4 xl:px-6 py-2 rounded-lg hover:bg-gray-100 transition duration-300 whitespace-nowrap"
               >
                 Get Started
               </button>
@@ -174,40 +200,19 @@ const Navbar: React.FC = () => {
           </div>
 
           {/* Mobile Menu Button */}
-          <div className="md:hidden">
+          <div className="lg:hidden">
             <button
-              onClick={toggleMenu}
-              className="font-extrabold text-lg text-white hover:text-[#78846f] focus:outline-none"
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              className="text-white focus:outline-none"
+              aria-expanded={isMenuOpen}
             >
-              {isOpen ? (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="w-6 h-6"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M6 18L18 6M6 6l12 12"
-                  />
+              {isMenuOpen ? (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               ) : (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="w-6 h-6"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M3.75 5.25h16.5m-16.5 6.75h16.5m-16.5 6.75h16.5"
-                  />
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               )}
             </button>
@@ -215,131 +220,80 @@ const Navbar: React.FC = () => {
         </div>
 
         {/* Mobile Menu */}
-        {isOpen && (
-          <div className="md:hidden bg-[#97c966] py-4">
-            <div className="flex flex-col space-y-2 mt-4">
-              <NavLink
-                to="/"
-                onClick={() => setIsOpen(false)}
-                className={({ isActive }) =>
-                  `text-white hover:text-[#78846f] ${
-                    isActive ? "font-normal text-[#97c966]" : ""
-                  }`
-                }
-              >
-                Home
-              </NavLink>
-              <NavLink
-                to="/about"
-                onClick={() => setIsOpen(false)}
-                className={({ isActive }) =>
-                  `text-white hover:text-[#78846f] ${
-                    isActive ? "font-normal text-[#97c966]" : ""
-                  }`
-                }
-              >
-                About
-              </NavLink>
-              <NavLink
-                to="/exam"
-                onClick={() => setIsOpen(false)}
-                className={({ isActive }) =>
-                  `text-white hover:text-[#78846f] ${
-                    isActive ? "font-normal text-blue-500" : ""
-                  }`
-                }
-              >
-                Exams
-              </NavLink>
-              <NavLink
-                to="/leaderboard"
-                onClick={() => setIsOpen(false)}
-                className={({ isActive }) =>
-                  `text-white hover:text-[#78846f] ${
-                    isActive ? "font-normal text-blue-500" : ""
-                  }`
-                }
-              >
-                Leaderboard
-              </NavLink>
-              <NavLink
-                to="/pricing"
-                onClick={() => setIsOpen(false)}
-                className={({ isActive }) =>
-                  `text-white hover:text-[#78846f] ${
-                    isActive ? "font-normal text-blue-500" : ""
-                  }`
-                }
-              >
-                Pricing
-              </NavLink>
-              <NavLink
-                to="/contact"
-                onClick={() => setIsOpen(false)}
-                className={({ isActive }) =>
-                  `text-white hover:text-[#78846f] ${
-                    isActive ? "font-normal text-blue-500" : ""
-                  }`
-                }
-              >
-                Contact
-              </NavLink>
-
-              {/* Conditional rendering for mobile menu */}
-              {isLoggedIn ? (
-              <div className="relative">
-                <div
-                  className="flex items-center space-x-2 cursor-pointer"
-                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                >
-                  <span className="text-white font-semibold">
-                    {userFirstName}
-                  </span>
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={1.5}
-                    stroke="currentColor"
-                    className="w-4 h-4 text-white"
+        {isMenuOpen && (
+          <div className="lg:hidden bg-[#66934e] py-4 divide-y divide-white/10">
+            <div className="flex flex-col space-y-3 pb-4">
+              {navItems.map((item) =>
+                item.path.startsWith("http") ? (
+                  <a
+                    key={item.path}
+                    href={item.path}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setIsMenuOpen(false)}
+                    className={`px-4 py-2 font-medium text-white hover:bg-[#557a40] rounded-md transition-colors ${
+                      item.highlight
+                        ? "bg-yellow-400 text-[#557a40] mx-4 my-2 rounded-xl font-bold shadow-md flex justify-center hover:bg-yellow-300"
+                        : ""
+                    }`}
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M19.5 8.25l-7.5 7.5-7.5-7.5"
-                    />
-                  </svg>
-                </div>
-                {isDropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10">
-                    <button
-                      onClick={() => {
-                        navigate("/dashboard");
-                        setIsDropdownOpen(false);
-                      }}
-                      className="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100"
-                    >
-                      Dashboard
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleLogout();
-                        setIsDropdownOpen(false);
-                      }}
-                      className="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100"
-                    >
-                      Logout
-                    </button>
+                    {item.name}
+                  </a>
+                ) : (
+                  <NavLink
+                    key={item.path}
+                    to={item.disabled ? "#" : item.path}
+                    onClick={(e) => {
+                      if (item.disabled) e.preventDefault();
+                      else setIsMenuOpen(false);
+                    }}
+                    className={({ isActive }) =>
+                      `px-4 py-2 font-medium text-white hover:bg-[#557a40] rounded-md transition-colors ${
+                        isActive ? "bg-[#557a40]" : ""
+                      } ${item.disabled ? "opacity-60 cursor-not-allowed" : ""} ${
+                        item.highlight
+                          ? "bg-yellow-400 text-[#557a40] mx-4 my-2 rounded-xl font-bold shadow-md flex justify-center hover:bg-yellow-300"
+                          : ""
+                      }`
+                    }
+                  >
+                    {item.name}
+                  </NavLink>
+                )
+              )}
+            </div>
+
+            {/* Mobile user section */}
+            <div className="pt-4 px-4">
+              {isLoggedIn ? (
+                <div className="flex flex-col space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="h-10 w-10 rounded-full bg-white text-[#66934e] flex items-center justify-center font-semibold text-lg">
+                      {userFirstName.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="text-white font-medium">{userFirstName}</span>
                   </div>
-                )}
-              </div>
-            ): (
+                  <NavLink
+                    to="/dashboard"
+                    onClick={() => setIsMenuOpen(false)}
+                    className="px-4 py-2 bg-white/10 text-white rounded-md hover:bg-white/20 transition-colors"
+                  >
+                    Dashboard
+                  </NavLink>
+                  <button
+                    onClick={handleLogout}
+                    className="px-4 py-2 bg-white/10 text-white rounded-md hover:bg-white/20 transition-colors text-left"
+                  >
+                    Logout
+                  </button>
+                </div>
+              ) : (
                 <button
                   onClick={() => {
-                    handleGetStarted();
-                    setIsOpen(false);
+                    navigate("/login");
+                    setIsMenuOpen(false);
                   }}
-                  className="bg-[#97c966] text-white font-semibold px-6 py-2 rounded-lg hover:bg-gray-100 transition duration-300"
+                  className="w-full bg-white text-[#66934e] font-semibold px-6 py-3 rounded-lg hover:bg-gray-100 transition duration-300"
                 >
                   Get Started
                 </button>

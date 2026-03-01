@@ -2,96 +2,114 @@ import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { generateOTP } from "../utils/OtpUtils";
+import { v4 as uuidv4 } from 'uuid';
+import { generateOTP, sendOTPEmail } from "../utils/OtpUtils";
 import { generateAccessToken, generateRefreshToken } from "../utils/Jwt";
 
-
-
-// REGISTER FUNCTION
+// Initialize Prisma client once
 const prisma = new PrismaClient();
 
+// Centralized error handling
+const handleError = (res: Response, error: unknown, message: string = "Server error"): void => {
+  console.error(`${message}:`, error);
+  const errorMessage = error instanceof Error ? error.message : "Unknown error";
+  res.status(500).json({ message, error: errorMessage });
+};
+
+// REGISTER FUNCTION - Optimized
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
     const { firstName, lastName, email, phoneNumber, password, referer } = req.body;
 
-    // Check if user exists
-    const existingUser = await prisma.user.findUnique({ where: { email } });
+    // Validate required fields
+    if (!firstName || !lastName || !email || !password) {
+      res.status(400).json({ message: "Missing required fields" });
+      return;
+    }
+
+    // Check if user exists (optimized query with select)
+    const existingUser = await prisma.user.findUnique({ 
+      where: { email },
+      select: { id: true }
+    });
+      
     if (existingUser) {
       res.status(400).json({ message: "Email already exists" });
       return;
     }
 
-    // Generate OTP and expiration time (3 days)
-    const otp = generateOTP(); // Generates a 6-digit number
+    // Generate OTP and hash password concurrently
+    const [otp, hashedPassword] = await Promise.all([
+      Promise.resolve(generateOTP()),
+      bcrypt.hash(password, 10)
+    ]);
+    
     const otpExpires = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // 3 days
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Create user transaction
+    const newUser = await prisma.$transaction(async (tx) => {
+      // Create the user
+      const user = await tx.user.create({
+        data: {
+          firstName,
+          lastName,
+          email,
+          phoneNumber,
+          password: hashedPassword,
+          referer,
+          otp,
+          otpExpires,
+        },
+        select: {
+          id: true,
+        }
+      });
 
-    // Create user with OTP
-    const newUser = await prisma.user.create({
-      data: {
-        firstName,
-        lastName,
-        email,
-        phoneNumber,
-        password: hashedPassword,
-        referer,
-        otp,
-        otpExpires,
-      },
-    });
-
-    // Handle referral creation if referer is provided
-    if (referer) {
-      try {
-        const referrer = await prisma.user.findUnique({
+      // Handle referral if provided
+      if (referer) {
+        const referrer = await tx.user.findUnique({
           where: { email: referer },
+          select: { id: true }
         });
 
         if (referrer) {
-          // Generate random earnings between ₦500 and ₦2000 (inclusive)
-          const randomEarnings = Math.floor(Math.random() * (2000 - 500 + 1)) + 500;
+          // Generate random earnings between ₦500 and ₦2000
+          const randomEarnings = Math.floor(Math.random() * 1501) + 500;
 
           // Create referral record
-          await prisma.referral.create({
+          await tx.referral.create({
             data: {
               referrerId: referrer.id,
-              referredId: newUser.id,
+              referredId: user.id,
               earnings: randomEarnings,
             },
           });
-        } else {
-          console.log(`Referrer with email ${referer} not found`);
         }
-      } catch (referralError) {
-        console.error("Error creating referral:", referralError);
-        // Continue registration even if referral fails
       }
-    }
 
+      return user;
+    });
 
-    // Send OTP to user's email
-    //await sendOTPEmail(email, otp);
-    console.log(otp);
+    // Send OTP email (done outside the transaction to not block it)
+    await sendOTPEmail(email, otp);
 
-    // Generate JWT token (valid for 3 days)
+    // Generate JWT token
     const token = jwt.sign(
       { userId: newUser.id },
       process.env.JWT_SECRET!,
-      { expiresIn: "3d" } // Token expires in 3 days
+      { expiresIn: "3d" }
     );
 
     res.status(201).json({
       message: "Registration successful! OTP sent to your email.",
-      token, // Include token if needed for other purposes
+      token,
     });
   } catch (error) {
-    console.error("Registration error:", error);
-    res.status(500).json({ message: "Server error", error });
+    handleError(res, error, "Registration error");
   }
 };
-//Login Function
+
+// LOGIN FUNCTION - Optimized
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
@@ -101,9 +119,28 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    // Get only the fields we need
+    const user = await prisma.user.findUnique({ 
+      where: { email },
+      select: { 
+        id: true, 
+        firstName: true, 
+        lastName: true, 
+        email: true, 
+        password: true, 
+        role: true, 
+        otp: true,
+        currentSessionToken: true
+      }
+    });
+
     if (!user) {
       res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    if (user.otp !== null) {
+      res.status(403).json({ message: "Please verify your OTP before logging in" });
       return;
     }
 
@@ -113,131 +150,107 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Generate Tokens
-    const accessToken = generateAccessToken({ id: user.id, firstName: user.firstName, lastName: user.lastName, role: user.role });
-    const refreshToken = generateRefreshToken({ id: user.id, firstName: user.firstName, lastName: user.lastName, role: user.role });
+    if (user.currentSessionToken) {
+      res.status(403).json({ message: "Already logged in on another device" });
+      return;
+    }
 
-    // Send tokens as HTTP-only cookies
-    /* res.cookie("accessToken", accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 15 * 60 * 1000, // 15 minutes
-    }); */
+    // Generate a unique session token
+    const sessionToken = uuidv4();
 
-    /*res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });*/
+    // Update user and generate tokens in parallel
+    const [_, accessToken, refreshToken] = await Promise.all([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { currentSessionToken: sessionToken },
+      }),
+      generateAccessToken({ 
+        id: user.id, 
+        sessionToken, 
+        firstName: user.firstName, 
+        lastName: user.lastName, 
+        role: user.role 
+      }),
+      generateRefreshToken({ 
+        id: user.id, 
+        firstName: user.firstName, 
+        lastName: user.lastName, 
+        role: user.role 
+      })
+    ]);
 
-    // Ensure the response includes the firstName field
     res.status(200).json({
       message: "Login successful",
       accessToken,
       refreshToken,
-      user: {id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email, role: user.role },
+      user: {
+        id: user.id, 
+        firstName: user.firstName, 
+        lastName: user.lastName, 
+        email: user.email, 
+        role: user.role 
+      },
     });
   } catch (error) {
-    const errorMessage = (error instanceof Error) ? error.message : "Unknown error";
-    res.status(500).json({ message: "Server error", error: errorMessage });
+    handleError(res, error, "Login error");
   }
 };
 
-//  Refresh Token Controller
+// REFRESH TOKEN - Optimized
 export const refreshToken = async (req: Request, res: Response): Promise<void> => {
   try {
     const refreshToken = req.cookies.refreshToken;
+    
     if (!refreshToken) {
       res.status(401).json({ message: "No refresh token, please login" });
       return;
     }
-    if (!process.env.JWT_REFRESH_SECRET) throw new Error("JWT_REFRESH_SECRET is missing");
+    
+    if (!process.env.JWT_REFRESH_SECRET) {
+      throw new Error("JWT_REFRESH_SECRET is missing");
+    }
 
-    jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, (err: any, decoded: any) => {
-      if (err) return res.status(403).json({ message: "Invalid refresh token" });
+    jwt.verify(
+      refreshToken, 
+      process.env.JWT_REFRESH_SECRET, 
+      (err: any, decoded: any) => {
+        if (err) {
+          return res.status(403).json({ message: "Invalid refresh token" });
+        }
 
-      const newAccessToken = generateAccessToken({ id: decoded.id, firstName: decoded.firstName, lastName: decoded.lastName, role: decoded.role });
-      res.json({ accessToken: newAccessToken });
-    });
-
+        const newAccessToken = generateAccessToken({ 
+          id: decoded.id, 
+          sessionToken: decoded.sessionToken, 
+          firstName: decoded.firstName, 
+          lastName: decoded.lastName, 
+          role: decoded.role 
+        });
+        
+        res.json({ accessToken: newAccessToken });
+      }
+    );
   } catch (error) {
-    console.error("Refresh Token Error:", error);
-    const errorMessage = (error instanceof Error) ? error.message : "Unknown error";
-    res.status(500).json({ message: "Server error", error: errorMessage });
+    handleError(res, error, "Refresh Token Error");
   }
 };
 
-//  Logout Controller
-export const logout = (req: Request, res: Response) => {
-  res.clearCookie("refreshToken");
-  res.json({ message: "Logged out successfully" });
-};
-
-
-//OTP Verification
-
-export const verifyOTP = async (req: Request, res: Response): Promise<void> => {
-    try {
-      const { email, otp } = req.body;
-  
-      // Find user by email
-      const user = await prisma.user.findUnique({ where: { email } });
-      if (!user) {
-        res.status(404).json({ message: "User not found" });
-        return;
-      }
-  
-      // Check OTP validity
-      if (user.otp !== otp || new Date() > user.otpExpires!) {
-        res.status(400).json({ message: "Invalid or expired OTP" });
-        return;
-      }
-  
-      // Clear OTP after successful verification
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { otp: null, otpExpires: null },
-      });
-  
-      // Generate final auth token
-      const token = jwt.sign(
-        { userId: user.id },
-        process.env.JWT_SECRET!,
-        { expiresIn: '3d' }
-      );
-  
-      res.status(200).json({ 
-        message: "OTP verified successfully!",
-        token,
-        user: { id: user.id, email: user.email, firstName: user.firstName }
-      });
-  
-    } catch (error) {
-      res.status(500).json({ message: "Server error", error });
-    }
-  };
-  
- //Get user profile
-
+// GET PROFILE - Optimized
 export const getProfile = async (req: Request, res: Response): Promise<void> => {
   try {
     // Extract the token from the Authorization header
     const token = req.headers.authorization?.split(" ")[1];
+    
     if (!token) {
-       res.status(401).json({ message: "No token provided"});
-        
-       return;
+      res.status(401).json({ message: "No token provided" });
+      return;
     }
 
     // Verify the token and extract the user ID
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
-    const userId = decoded.id;
-
-    // Fetch the user's profile data
+    
+    // Fetch only the needed fields
     const user = await prisma.user.findUnique({
-      where: { id: userId },
+      where: { id: decoded.id },
       select: {
         id: true,
         firstName: true,
@@ -249,25 +262,21 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
     if (!user) {
       res.status(404).json({ message: "User not found" });
-      return
+      return;
     }
 
     res.status(200).json(user);
   } catch (error) {
-    console.error("Error fetching profile:", error);
-    res.status(500).json({ message: "Server error" });
+    handleError(res, error, "Error fetching profile");
   }
 };
 
-
-
-
-// Fetch User Details Endpoint
-export const Setting = async (req:Request, res: Response):Promise<void> => {
+// SETTINGS - Optimized and renamed for consistency
+export const getUserSettings = async (req: Request, res: Response): Promise<void> => {
   const { userId } = req.params;
 
   if (!userId) {
-    res.status(400).json({ error: "User ID is required." });
+    res.status(400).json({ message: "User ID is required" });
     return;
   }
 
@@ -282,29 +291,28 @@ export const Setting = async (req:Request, res: Response):Promise<void> => {
     });
 
     if (!user) {
-      res.status(404).json({ error: "User not found." });
-      return ;
+      res.status(404).json({ message: "User not found" });
+      return;
     }
 
     res.status(200).json(user);
   } catch (error) {
-    console.error("Error fetching user details:", error);
-    res.status(500).json({ error: "An error occurred while fetching user details." });
+    handleError(res, error, "Error fetching user details");
   }
 };
 
-// Get User Endpoint
+// GET USER - Optimized
 export const getUser = async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
 
   if (!id) {
-    res.status(400).json({ error: "User ID is required." });
+    res.status(400).json({ message: "User ID is required" });
     return;
   }
 
   try {
     const user = await prisma.user.findUnique({
-      where: { id: id },
+      where: { id },
       select: {
         firstName: true,
         lastName: true,
@@ -313,7 +321,7 @@ export const getUser = async (req: Request, res: Response): Promise<void> => {
     });
 
     if (!user) {
-      res.status(404).json({ error: "User not found." });
+      res.status(404).json({ message: "User not found" });
       return;
     }
 
@@ -323,33 +331,45 @@ export const getUser = async (req: Request, res: Response): Promise<void> => {
       phone: user.phoneNumber,
     });
   } catch (error) {
-    console.error("Error fetching user details:", error);
-    res.status(500).json({ error: "An error occurred while fetching user details." });
+    handleError(res, error, "Error fetching user details");
   }
 };
 
-// Update User Endpoint
+// UPDATE USER - Optimized
 export const updateUser = async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const { firstName, lastName, phone } = req.body;
 
   if (!id) {
-    res.status(400).json({ error: "User ID is required." });
+    res.status(400).json({ message: "User ID is required" });
     return;
   }
 
   try {
+    // Only update fields that were provided
+    const updateData: any = {};
+    if (firstName !== undefined) updateData.firstName = firstName;
+    if (lastName !== undefined) updateData.lastName = lastName;
+    if (phone !== undefined) updateData.phoneNumber = phone;
+    
+    // Don't update if no fields were provided
+    if (Object.keys(updateData).length === 0) {
+      res.status(400).json({ message: "No fields to update" });
+      return;
+    }
+
     const updatedUser = await prisma.user.update({
-      where: { id: id },
-      data: {
-        firstName: firstName !== undefined ? firstName : undefined,
-        lastName: lastName !== undefined ? lastName : undefined,
-        phoneNumber: phone !== undefined ? phone : undefined,
+      where: { id },
+      data: updateData,
+      select: {
+        firstName: true,
+        lastName: true,
+        phoneNumber: true,
       },
     });
 
     res.status(200).json({
-      message: "User details updated successfully.",
+      message: "User details updated successfully",
       user: {
         firstName: updatedUser.firstName,
         lastName: updatedUser.lastName,
@@ -357,8 +377,35 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
       },
     });
   } catch (error) {
-    console.error("Error updating user details:", error);
-    res.status(500).json({ error: "An error occurred while updating user details." });
+    handleError(res, error, "Error updating user details");
+  }
+};
+
+// LOGOUT - Optimized
+export const logout = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { userId } = req.body;
+    
+    if (!userId) {
+      res.status(400).json({ message: "User ID is required" });
+      return;
+    }
+
+    // Check if user exists while also updating
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { currentSessionToken: null },
+      select: { id: true }
+    });
+
+    if (!user) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    res.status(200).json({ message: "Logged out successfully" });
+  } catch (error) {
+    handleError(res, error, "Logout error");
   }
 };
 

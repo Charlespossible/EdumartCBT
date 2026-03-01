@@ -7,7 +7,7 @@ import Footer from "../components/Footer";
 
 const Login: React.FC = () => {
   const handleLogin = (data: LoginFormData) => {
-    console.log("Login data submitted:", data);
+    console.log("Login data submtted :", data);
     // Implement authentication logic here later
   };
 

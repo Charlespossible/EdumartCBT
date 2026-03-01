@@ -2,55 +2,56 @@ import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
-export const getBestPerformers = async (req: Request, res: Response): Promise<void> => {
+// Updated getBestPerformers function
+export const getBestPerformers = async (req: Request, res: Response):Promise<void> => {
   try {
-    // Fetch the best performers based on their scores
-    const bestPerformers = await prisma.examResult.findMany({
+    // Get user details and best subject in single query
+    const results = await prisma.examResult.groupBy({
+      by: ['userId'],
+      _avg: { score: true },
+      _max: { score: true },
+      orderBy: { _avg: { score: 'desc' } },
+      take: 10,
+    });
+
+    if (results.length === 0) {
+       res.status(200).json([]);
+       return;
+    }
+
+    // Batch fetch user data
+    const userIds = results.map(r => r.userId);
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, firstName: true, lastName: true }
+    });
+
+    // Batch fetch best subjects
+    const bestExams = await prisma.examResult.findMany({
+      where: { userId: { in: userIds } },
+      distinct: ['userId'],
+      orderBy: { score: 'desc' },
       select: {
-        id: true,
-        user: {
-          select: {
-            firstName: true,
-            lastName: true,
-          },
-        },
-        exam: {
-          select: {
-            subjectName: true, 
-          },
-        },
-        score: true,
-      },
-      orderBy: {
-        score: "asc", 
-      },
-      take: 10, 
+        userId: true,
+        exam: { select: { subjectName: true } }
+      }
     });
 
-     // If no data is available, return a message
-     if (bestPerformers.length === 0) {
-         res.status(200).json({ message: "No available data" });
-         return;
-      }
+    // Create lookup maps
+    const userMap = new Map(users.map(u => [u.id, u]));
+    const examMap = new Map(bestExams.map(e => [e.userId, e]));
 
-    // Group results by user and their best subjects
-    const performersMap = new Map<string, { name: string; subjects: string[]; scores: number[] }>();
+    // Build response
+    const leaderboard = results.map(result => {
+      const user = userMap.get(result.userId);
+      const bestExam = examMap.get(result.userId);
 
-    bestPerformers.forEach((result) => {
-      const userName = `${result.user.firstName} ${result.user.lastName}`;
-      if (!performersMap.has(userName)) {
-        performersMap.set(userName, { name: userName, subjects: [], scores: [] });
-      }
-      performersMap.get(userName)?.subjects.push(result.exam.subjectName); // Add the subject
-      performersMap.get(userName)?.scores.push(result.score); // Add the score
+      return {
+        name: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+        bestSubject: bestExam?.exam?.subjectName || 'N/A',
+        averageScore: result._avg.score?.toFixed(2) || 0 // Format number
+      };
     });
-
-    // Convert the map to an array
-    const leaderboard = Array.from(performersMap.values()).map((performer) => ({
-      name: performer.name,
-      bestSubject: performer.subjects[0], // Display the first subject they excelled in
-      averageScore: performer.scores.reduce((a, b) => a + b, 0) / performer.scores.length,
-    }));
 
     res.status(200).json(leaderboard);
   } catch (error) {

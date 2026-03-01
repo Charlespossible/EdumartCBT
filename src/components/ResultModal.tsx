@@ -17,7 +17,6 @@ interface ResultModalProps {
 
 const ResultModal: React.FC<ResultModalProps> = ({
   isOpen,
-  onClose,
   score,
   totalQuestions,
   questions,
@@ -29,7 +28,7 @@ const ResultModal: React.FC<ResultModalProps> = ({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-2xl">
         <h3 className="text-2xl font-bold text-center mb-4">Exam Results</h3>
-        <hr className="border-b-2 border-[#97c966] mt-4 mb-6 w-20 mx-auto"></hr>
+        <hr className="border-b-2 border-[#66934e] mt-4 mb-6 w-20 mx-auto"></hr>
 
         <div className="space-y-4">
           <p className="text-center text-lg">
@@ -68,7 +67,7 @@ const ResultModal: React.FC<ResultModalProps> = ({
           <div className="mt-6 text-center">
             <button
               onClick={onRestart}
-              className="bg-[#97c966] text-white py-2 px-6 rounded-lg hover:bg-[#85b35c]"
+              className="bg-[#66934e] text-white py-2 px-6 rounded-lg hover:bg-[#85b35c]"
             >
               Take Another Exam
             </button>

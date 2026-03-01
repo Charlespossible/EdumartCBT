@@ -3,11 +3,20 @@ import nodemailer from "nodemailer";
 
 // Configure Nodemailer transporter
 const transporter = nodemailer.createTransport({
-  service: "gmail", // Use Gmail as the email service
+  host: "mail.edumartcbt.com", 
+  port: 465, 
+  secure: true, 
   auth: {
-    user: process.env.EMAIL_USER, // Your Gmail email address
-    pass: process.env.EMAIL_PASSWORD, // Your Gmail app password
+    user: process.env.EMAIL_USER, 
+    pass: process.env.EMAIL_PASSWORD, 
   },
+  tls: {
+    rejectUnauthorized: false, 
+  },
+  pool: true,
+  maxConnections: 5,
+  maxMessages: 100,
+  connectionTimeout: 30000,
 });
 
 export const submitContactForm = async (req: Request, res: Response): Promise<void> => {

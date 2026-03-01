@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import baseApi from "../utils/baseApi";
 
 interface UserProfile {
   id: string;
@@ -18,14 +19,13 @@ const Profile: React.FC = () => {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        // Retrieve the accessToken from localStorage
         const accessToken = localStorage.getItem("accessToken");
         if (!accessToken) {
           throw new Error("No access token found");
         }
-        console.log(accessToken);
-        // Fetch the user's profile data
-        const response = await axios.get("http://localhost:5000/api/auth/profile", {
+
+
+        const response = await axios.get(`${baseApi}/auth/profile`, {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -44,7 +44,6 @@ const Profile: React.FC = () => {
   }, []);
 
 
-
   if (loading) {
     return <div className="p-6 bg-white shadow-md rounded-md">Loading...</div>;
   }
@@ -58,13 +57,13 @@ const Profile: React.FC = () => {
       <h2 className="text-xl font-semibold mb-4">Profile Information</h2>
       <div className="space-y-4">
         <p>
-          <strong>Name:</strong> {profile.firstName} {profile.lastName}
+          <strong>Name:</strong> {profile?.firstName} {profile?.lastName}
         </p>
         <p>
-          <strong>Email:</strong> {profile.email}
+          <strong>Email:</strong> {profile?.email}
         </p>
         <p>
-          <strong>Enrolled Since:</strong> {new Date(profile.createdAt).toLocaleDateString()}
+          <strong>Enrolled Since:</strong> {profile && new Date(profile.createdAt).toLocaleDateString()}
         </p>
       </div>
       <ToastContainer position="top-right" autoClose={3000} />

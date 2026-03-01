@@ -1,13 +1,12 @@
 import React from "react";
 import RegistrationForm from "../components/RegistrationForm";
-import { RegistrationFormData } from "../types/RegistrationForm";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
+import { RegistrationFormData } from "../types/RegistrationForm";
 
 const Register: React.FC = () => {
   const handleRegister = (data: RegistrationFormData) => {
-    console.log("Registration data submitted:", data);
-    // Implement backend integration later
+    console.log("Data :", data);
   };
 
   return (

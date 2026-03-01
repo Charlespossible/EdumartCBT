@@ -14,7 +14,7 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="flex h-screen bg-gray-100">
       {/* Sidebar */}
-      <aside className="w-64 bg-[#97c966] text-white hidden md:flex flex-col p-4">
+      <aside className="w-64 bg-[#66934e] text-white hidden md:flex flex-col p-4">
         <h2 className="text-xl font-bold mb-6">Admin Panel</h2>
         <nav>
           <ul className="space-y-4">
@@ -72,7 +72,6 @@ const AdminDashboard: React.FC = () => {
           <h1 className="text-lg font-semibold">Admin Dashboard</h1>
           <button className="bg-red-500 text-white px-4 py-2 rounded-md">Logout</button>
         </header>
-
         {/* Dynamic Content */}
         <main className="p-6">
           {activeTab === "dashboard" && <h2 className="text-2xl font-bold">Welcome to Admin Dashboard</h2>}

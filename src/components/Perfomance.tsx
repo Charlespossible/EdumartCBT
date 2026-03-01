@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { toast } from "react-toastify";
+import baseApi from "../utils/baseApi";
 
 interface PerformanceData {
   totalExams: number;
@@ -27,7 +28,7 @@ const Performance: React.FC = () => {
         }
 
         // Make the API request with the token in the Authorization header
-        const response = await axios.get("http://localhost:5000/api/exam/performance", {
+        const response = await axios.get(`${baseApi}/exam/performance`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setPerformance(response.data);
@@ -47,7 +48,7 @@ const Performance: React.FC = () => {
           <h3 className="font-semibold">Total Exams Taken</h3>
           <p className="text-lg font-bold">{performance.totalExams}</p>
         </div>
-        <div className="p-4 border rounded-md bg-[#97c966]">
+        <div className="p-4 border rounded-md bg-[#66934e]">
           <h3 className="font-semibold">Average Score</h3>
           <p className="text-lg font-bold">{performance.averageScore}%</p>
         </div>

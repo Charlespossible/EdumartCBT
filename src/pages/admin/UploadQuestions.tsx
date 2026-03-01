@@ -3,6 +3,7 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import axios from "axios";
 import { useDropzone } from "react-dropzone";
+import baseApi from "../../utils/baseApi";
 
 const UploadQuestions: React.FC = () => {
   const [files, setFiles] = useState<File[]>([]);
@@ -44,18 +45,16 @@ const UploadQuestions: React.FC = () => {
 
     const uploadFiles = async () => {
       setIsUploading(true);
-      const BASE_URL = "http://localhost:5000";
 
       try {
         const formData = new FormData();
         files.forEach(file => formData.append("files", file));
 
         const response = await axios.post(
-          `${BASE_URL}/api/admin/upload-questions`,
+          `${baseApi}/admin/upload-questions`,
           formData,
           { headers: { "Content-Type": "multipart/form-data" } }
         );
-        //console.log("FormData fields:", [...formData.entries()]);
 
         if (response.status === 200) {
           const result = response.data;
@@ -96,7 +95,7 @@ const UploadQuestions: React.FC = () => {
         <div
           {...getRootProps()}
           className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
-            ${isDragActive ? "border-[#97c966] bg-[#f8faf7]" : "border-gray-300 hover:border-[#97c966]"}`}
+            ${isDragActive ? "border-[#66934e] bg-[#f8faf7]" : "border-gray-300 hover:border-[#66934e]"}`}
         >
           <input {...getInputProps({ name : "files" })} />
           <div className="space-y-2">
@@ -149,8 +148,8 @@ const UploadQuestions: React.FC = () => {
         {/* Submit Button */}
         <button
           type="submit"
-          className="w-full px-6 py-3 font-bold text-white bg-[#97c966] rounded-lg hover:bg-[#85b35c] 
-            transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#97c966] 
+          className="w-full px-6 py-3 font-bold text-white bg-[#66934e] rounded-lg hover:bg-[#85b35c] 
+            transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#66934e] 
             disabled:opacity-50 disabled:cursor-not-allowed"
           disabled={isUploading || files.length === 0}
         >

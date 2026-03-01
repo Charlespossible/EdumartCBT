@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from "react";
 import { AuthContext } from "../context/AuthContext";
 import axios from "axios";
+import baseApi from "../utils/baseApi";
 
 const Settings: React.FC = () => {
   const auth = useContext(AuthContext);
@@ -13,7 +14,7 @@ const Settings: React.FC = () => {
   });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const BASE_URL = "http://localhost:5000";
+  
 
   useEffect(() => {
     if (auth?.user) {
@@ -36,7 +37,7 @@ const Settings: React.FC = () => {
       const Userid = user.id;
       setLoading(true);
       try {
-        const response = await axios.get(`${BASE_URL}/api/auth/get-user/${Userid}`, 
+        const response = await axios.get(`${baseApi}/auth/get-user/${Userid}`, 
             
         {
           headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` },
@@ -82,7 +83,7 @@ const Settings: React.FC = () => {
 
     try {
       const response = await axios.put(
-        `${BASE_URL}/api/auth/update-user/${user.id}`,
+        `${baseApi}/auth/update-user/${user.id}`,
         formData,
         {
           headers: {
@@ -148,7 +149,7 @@ const Settings: React.FC = () => {
         <button
           type="submit"
           disabled={loading}
-          className="bg-[#97c966] text-white px-4 py-2 rounded hover:bg-[#85b35c] transition-colors"
+          className="bg-[#66934e] text-white px-4 py-2 rounded hover:bg-[#85b35c] transition-colors"
         >
           {loading ? "Saving..." : "Save Changes"}
         </button>

@@ -1,6 +1,5 @@
-// backend/controllers/performanceController.ts
 import { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient  } from "@prisma/client";
 
 
 declare global {
@@ -8,6 +7,7 @@ declare global {
     interface Request {
       user?: {
         id: string;
+        role: string;
       };
     }
   }

@@ -1,7 +1,8 @@
 import { createContext, useState, useEffect, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../utils/api";
-//import { jwtDecode } from "jwt-decode";
+import axios from "axios";
+import { toast } from "react-toastify";
+import baseApi from "../utils/baseApi";
 import Cookies from "js-cookie";
 
 interface AuthProviderProps {
@@ -9,7 +10,7 @@ interface AuthProviderProps {
 }
 
 interface User {
-  id:string;
+  id: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -18,61 +19,73 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  setUser?: (user: User | null) => void;
 }
+
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(() => {
-    // Load user from sessionStorage
-    const storedUser = sessionStorage.getItem("user");
+    const storedUser = localStorage.getItem("user");
     return storedUser ? JSON.parse(storedUser) : null;
   });
 
   const navigate = useNavigate();
 
   useEffect(() => {
-    const storedUser = sessionStorage.getItem("user");
+    const storedUser = localStorage.getItem("user");
     if (storedUser) {
       setUser(JSON.parse(storedUser));
+    } else {
+      setUser(null);
     }
-  }, []);
+  }, []); // Runs on mount to sync user state
 
-  const login = async (email: string, password: string) => {
+  const logout = async () => {
     try {
-      const response = await api.post("/auth/login", { email, password });
-  
-      // Ensure the response contains the user object with firstName
-      if (!response.data.user) {
-        throw new Error("No user data received");
+      // Get user data from localStorage as a fallback
+      const storedUser = localStorage.getItem("user");
+      if (!storedUser) {
+        throw new Error("No user data available");
       }
-  
-      const { id, firstName, lastName, role } = response.data.user;
-      console.log("Extracted User Data:", { id, firstName, lastName, role })
-      // Store user data in cookies
-      Cookies.set("firstName", firstName, { secure: false, sameSite: "Lax", path: "/" });
-      Cookies.set("role", role, { secure: false, sameSite: "Lax", path: "/" });
-      Cookies.set("role", email, { secure: false, sameSite: "Lax", path: "/" });
-      console.log("Cookies Set:", Cookies.get("firstName"), Cookies.get("role")); 
-      setUser({ id, firstName, lastName, email, role });
-  
-      // Redirect to dashboard
-      navigate("/dashboard");
-    } catch (error) {
-      console.error("Login failed:", error);
-    }
-  };
+      const userData: User = JSON.parse(storedUser);
+      if (!userData.id) {
+        throw new Error("No user ID available");
+      }
 
-  const logout = () => {
-    sessionStorage.clear();
-    setUser(null);
-    navigate("/login");
+      await axios.post(
+        `${baseApi}/auth/logout`,
+        { userId: userData.id }, // Match backend expectation
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
+          },
+        }
+      );
+
+      // Clear all storage
+      localStorage.clear();
+      Cookies.remove("firstName");
+      Cookies.remove("email");
+      Cookies.remove("role");
+      setUser(null);
+
+      toast.success("Logged out successfully", {
+        autoClose: 3000,
+        onClose: () => {
+          navigate("/login");
+        },
+      });
+    } catch (error) {
+      toast.error("Logout failed");
+      console.error("Logout error:", error);
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, logout }}>
       {children}
     </AuthContext.Provider>
   );

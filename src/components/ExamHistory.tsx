@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
+import baseApi from "../utils/baseApi";
 
 // Define TypeScript interface for exam data
 interface Exam {
@@ -19,17 +20,14 @@ const ExamHistory: React.FC = () => {
     const fetchExamHistory = async () => {
       try {
         const token = localStorage.getItem("accessToken");
-        console.log("Token:", token);
         if (!token) {
           throw new Error("No token found");
         }
-        const response = await axios.get("http://localhost:5000/api/exam/exam-history", {
+        const response = await axios.get(`${baseApi}/exam/exam-history`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
         });
-  
-        console.log("Response data:", response.data);
         setExams(response.data);
         if (response.data.length === 0) {
           console.log("No exam history available");

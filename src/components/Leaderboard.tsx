@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import  baseApi  from "../utils/baseApi";
 
 interface LeaderboardEntry {
   name: string;
@@ -7,20 +8,25 @@ interface LeaderboardEntry {
   averageScore: string;
 }
 
+// Updated Leaderboard component
 const Leaderboard: React.FC = () => {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null); // Add error state
 
   useEffect(() => {
     const fetchLeaderboard = async () => {
       try {
-        const response = await axios.get("http://localhost:5000/api/auth/leaderboard");
-        console.log(response.data); // Debugging: Check the API response
-        setLeaderboard(response.data); // Update if the response is nested
-      } catch (error) {
-        console.error("Error fetching leaderboard:", error);
-        // Display an error message to the user
-        return <div className="text-center py-8">Failed to load leaderboard. Please try again later.</div>;
+        const response = await axios.get(`${baseApi}/auth/leaderboard`);
+        // Convert numbers to strings if needed
+        const data = response.data.map((entry: LeaderboardEntry) => ({
+          ...entry,
+          averageScore: entry.averageScore.toString()
+        }));
+        setLeaderboard(data);
+      } catch (err) {
+        console.error("Error fetching leaderboard:", err);
+        setError("Failed to load leaderboard. Please try again later."); // Set error state
       } finally {
         setLoading(false);
       }
@@ -33,21 +39,20 @@ const Leaderboard: React.FC = () => {
     return <div className="text-center py-8">Loading...</div>;
   }
 
-  if (leaderboard.length === 0) {
-    return <div className="text-center py-8">No data available.</div>;
+  if (error) { // Render error state
+    return <div className="text-center py-8 text-red-500">{error}</div>;
   }
-
   return (
     <div className="bg-gray-100 min-h-screen py-12 px-4">
       <h2 className="text-3xl font-bold text-center text-gray-800 mb-8">
         Top Performers
-        <hr className="border-b-4 border-[#97c966] mt-4 mb-8 w-48 mx-auto"></hr>
+        <hr className="border-b-4 border-[#66934e] mt-4 mb-8 w-48 mx-auto"></hr>
       </h2>
       
       <div className="overflow-x-auto">
   <table className="min-w-full bg-white rounded-lg shadow-lg">
     <thead>
-      <tr className="bg-[#97c966] text-white">
+      <tr className="bg-[#66934e] text-white">
         <th className="py-3 px-4 text-center">Rank</th>
         <th className="py-3 px-4 text-center">Name</th>
         <th className="py-3 px-4 text-center">Best Subject</th>

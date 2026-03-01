@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400">
+  <!-- Background -->
+  <rect width="600" height="400" fill="#f8f9fa" rx="8" ry="8"/>
+  
+  <!-- Dashboard Header -->
+  <rect x="0" y="0" width="600" height="50" fill="#66934e" rx="8" ry="8"/>
+  <text x="20" y="32" font-family="Arial" font-size="18" font-weight="bold" fill="white">Edumart CBT Dashboard</text>
+  
+  <!-- Navigation Menu -->
+  <rect x="0" y="50" width="150" height="350" fill="#ffffff" />
+  
+  <!-- Nav Items -->
+  <rect x="10" y="70" width="130" height="40" fill="#e9f0e6" rx="5" ry="5"/>
+  <text x="45" y="95" font-family="Arial" font-size="14" fill="#557a40" font-weight="bold">Dashboard</text>
+  <circle cx="30" cy="90" r="8" fill="#66934e"/>
+  
+  <text x="45" y="145" font-family="Arial" font-size="14" fill="#666">Exams</text>
+  <circle cx="30" cy="140" r="8" fill="#aac0a0"/>
+  
+  <text x="45" y="195" font-family="Arial" font-size="14" fill="#666">Students</text>
+  <circle cx="30" cy="190" r="8" fill="#aac0a0"/>
+  
+  <text x="45" y="245" font-family="Arial" font-size="14" fill="#666">Questions</text>
+  <circle cx="30" cy="240" r="8" fill="#aac0a0"/>
+  
+  <text x="45" y="295" font-family="Arial" font-size="14" fill="#666">Reports</text>
+  <circle cx="30" cy="290" r="8" fill="#aac0a0"/>
+  
+  <text x="45" y="345" font-family="Arial" font-size="14" fill="#666">Settings</text>
+  <circle cx="30" cy="340" r="8" fill="#aac0a0"/>
+  
+  <!-- Main Content Area -->
+  <rect x="160" y="60" width="430" height="90" fill="white" rx="5" ry="5" stroke="#e0e0e0" stroke-width="1"/>
+  
+  <!-- Stats Boxes -->
+  <rect x="170" y="70" width="100" height="70" fill="#f0f7ed" rx="5" ry="5"/>
+  <text x="220" y="100" font-family="Arial" font-size="24" text-anchor="middle" font-weight="bold" fill="#66934e">42</text>
+  <text x="220" y="125" font-family="Arial" font-size="12" text-anchor="middle" fill="#666">Active Exams</text>
+  
+  <rect x="280" y="70" width="100" height="70" fill="#f0f7ed" rx="5" ry="5"/>
+  <text x="330" y="100" font-family="Arial" font-size="24" text-anchor="middle" font-weight="bold" fill="#66934e">356</text>
+  <text x="330" y="125" font-family="Arial" font-size="12" text-anchor="middle" fill="#666">Students</text>
+  
+  <rect x="390" y="70" width="100" height="70" fill="#f0f7ed" rx="5" ry="5"/>
+  <text x="440" y="100" font-family="Arial" font-size="24" text-anchor="middle" font-weight="bold" fill="#66934e">18</text>
+  <text x="440" y="125" font-family="Arial" font-size="12" text-anchor="middle" fill="#666">Teachers</text>
+  
+  <rect x="500" y="70" width="80" height="70" fill="#fef9e7" rx="5" ry="5"/>
+  <text x="540" y="100" font-family="Arial" font-size="24" text-anchor="middle" font-weight="bold" fill="#d4ac0d">5</text>
+  <text x="540" y="125" font-family="Arial" font-size="12" text-anchor="middle" fill="#666">Pending</text>
+  
+  <!-- Upcoming Exams Section -->
+  <rect x="160" y="160" width="270" height="230" fill="white" rx="5" ry="5" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="180" y="185" font-family="Arial" font-size="16" font-weight="bold" fill="#333">Upcoming Exams</text>
+  
+  <!-- Exam Items -->
+  <rect x="170" y="195" width="250" height="50" fill="#f8f9fa" rx="3" ry="3"/>
+  <text x="180" y="215" font-family="Arial" font-size="14" font-weight="bold" fill="#444">Mathematics - SS2</text>
+  <text x="180" y="235" font-family="Arial" font-size="12" fill="#666">Apr 10, 2025 • 10:00 AM • 90 min</text>
+  <rect x="380" y="210" width="30" height="20" fill="#66934e" rx="3" ry="3"/>
+  <text x="395" y="224" font-family="Arial" font-size="10" text-anchor="middle" fill="white">View</text>
+  
+  <rect x="170" y="255" width="250" height="50" fill="#f8f9fa" rx="3" ry="3"/>
+  <text x="180" y="275" font-family="Arial" font-size="14" font-weight="bold" fill="#444">English Language - SS3</text>
+  <text x="180" y="295" font-family="Arial" font-size="12" fill="#666">Apr 12, 2025 • 09:00 AM • 120 min</text>
+  <rect x="380" y="270" width="30" height="20" fill="#66934e" rx="3" ry="3"/>
+  <text x="395" y="284" font-family="Arial" font-size="10" text-anchor="middle" fill="white">View</text>
+  
+  <rect x="170" y="315" width="250" height="50" fill="#f8f9fa" rx="3" ry="3"/>
+  <text x="180" y="335" font-family="Arial" font-size="14" font-weight="bold" fill="#444">Physics - SS2</text>
+  <text x="180" y="355" font-family="Arial" font-size="12" fill="#666">Apr 15, 2025 • 11:30 AM • 90 min</text>
+  <rect x="380" y="330" width="30" height="20" fill="#66934e" rx="3" ry="3"/>
+  <text x="395" y="344" font-family="Arial" font-size="10" text-anchor="middle" fill="white">View</text>
+  
+  <!-- Performance Chart -->
+  <rect x="440" y="160" width="150" height="230" fill="white" rx="5" ry="5" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="460" y="185" font-family="Arial" font-size="16" font-weight="bold" fill="#333">Performance</text>
+  
+  <!-- Simple Bar Chart -->
+  <rect x="460" y="200" width="20" height="170" fill="#f0f0f0" rx="2" ry="2"/>
+  <rect x="460" y="270" width="20" height="100" fill="#66934e" rx="2" ry="2"/>
+  <text x="470" y="385" font-family="Arial" font-size="10" text-anchor="middle" fill="#666">Math</text>
+  
+  <rect x="490" y="200" width="20" height="170" fill="#f0f0f0" rx="2" ry="2"/>
+  <rect x="490" y="230" width="20" height="140" fill="#66934e" rx="2" ry="2"/>
+  <text x="500" y="385" font-family="Arial" font-size="10" text-anchor="middle" fill="#666">Eng</text>
+  
+  <rect x="520" y="200" width="20" height="170" fill="#f0f0f0" rx="2" ry="2"/>
+  <rect x="520" y="250" width="20" height="120" fill="#66934e" rx="2" ry="2"/>
+  <text x="530" y="385" font-family="Arial" font-size="10" text-anchor="middle" fill="#666">Sci</text>
+  
+  <rect x="550" y="200" width="20" height="170" fill="#f0f0f0" rx="2" ry="2"/>
+  <rect x="550" y="280" width="20" height="90" fill="#ffce56" rx="2" ry="2"/>
+  <text x="560" y="385" font-family="Arial" font-size="10" text-anchor="middle" fill="#666">SS3</text>
+  
+  <!-- Quick Actions Button -->
+  <rect x="490" y="15" width="100" height="30" fill="#ffc107" rx="15" ry="15"/>
+  <text x="540" y="35" font-family="Arial" font-size="14" text-anchor="middle" font-weight="bold" fill="#557a40">+ New Exam</text>
+</svg>

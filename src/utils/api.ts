@@ -1,16 +1,16 @@
 import axios from "axios";
 import Cookies from "js-cookie";
+import baseApi from "./baseApi";
 
-const baseURL = "http://localhost:5000/api"; // Define baseURL once
 
 const api = axios.create({
-  baseURL,
+  baseURL: baseApi,
   withCredentials: true, // Enables sending cookies
 });
 
 // Attach the access token to each request if available
 api.interceptors.request.use((config) => {
-  const accessToken = Cookies.get("accessToken"); // Retrieve token from cookies
+  const accessToken = Cookies.get("accessToken"); 
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
@@ -21,22 +21,39 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 403) {
+    const originalRequest = error.config;
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+
       try {
-        const res = await axios.post(`${baseURL}/auth/refresh-token`, {}, { withCredentials: true });
+        const res = await axios.post(
+          `${baseApi}/auth/refresh-token`,
+          {},
+          { withCredentials: true }
+        );
 
-        // Store new token in Cookies
-        Cookies.set("accessToken", res.data.accessToken, { secure: true, sameSite: "Strict" });
+        const newAccessToken = res.data.accessToken;
 
-        // Retry the failed request with the new token
-        error.config.headers.Authorization = `Bearer ${res.data.accessToken}`;
-        return api(error.config);
-      } catch (err) {
-        return Promise.reject(err);
+        Cookies.set("accessToken", newAccessToken, {
+          secure: true,
+          sameSite: "Strict",
+        });
+
+        // Update Authorization header
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+
+        return api(originalRequest);
+      } catch (refreshError) {
+        // Optional: force logout here
+        Cookies.remove("accessToken");
+        return Promise.reject(refreshError);
       }
     }
+
     return Promise.reject(error);
   }
 );
 
 export default api;
+
+

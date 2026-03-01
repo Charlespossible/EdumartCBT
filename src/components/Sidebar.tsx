@@ -1,6 +1,6 @@
-import React from "react";
-import { NavLink } from "react-router-dom";
+import React, { useContext } from "react";
 import { FaUser, FaChartLine, FaClipboardList, FaCog, FaSignOutAlt } from "react-icons/fa";
+import { AuthContext } from "../context/AuthContext";
 
 interface SidebarProps {
   openProfileModal: () => void;
@@ -15,8 +15,17 @@ const Sidebar: React.FC<SidebarProps> = ({
   openExamHistoryModal,
   openSettingsModal,
 }) => {
+  const authContext = useContext(AuthContext);
+
+  // Type guard to ensure authContext exists
+  if (!authContext) {
+    return <div>Authentication error</div>;
+  }
+
+  const { logout } = authContext;
+
   return (
-    <aside className="w-64 bg-[#97c966] text-white h-full flex flex-col p-4">
+    <aside className="w-64 bg-[#66934e] text-white h-full flex flex-col p-4">
       <h2 className="text-xl font-bold mb-6">User Dashboard</h2>
       <nav>
         <ul className="space-y-4">
@@ -53,12 +62,12 @@ const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </li>
           <li className="mt-6">
-            <NavLink
-              to="/logout"
+            <button
+              onClick={logout}
               className="flex items-center space-x-3 hover:text-gray-300 w-full text-left"
             >
               <FaSignOutAlt className="text-white" /> <span>Logout</span>
-            </NavLink>
+            </button>
           </li>
         </ul>
       </nav>

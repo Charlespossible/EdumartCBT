@@ -25,7 +25,7 @@ const QuizPage: React.FC = () => {
 
   useEffect(() => {
     axios
-      .get(`http://locahost:5000/api/exams/questions`, 
+      .get(`http://localhost:5000/api/exams/questions`, 
         {
           params: { subjectName, year },
         }

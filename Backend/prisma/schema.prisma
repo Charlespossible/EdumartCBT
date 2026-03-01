@@ -5,7 +5,9 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-1.0.x", "debian-openssl-1.1.x"]
+  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -28,35 +30,28 @@ model User {
   otp         String?
   otpExpires  DateTime?
   resetToken  String?
-  referrals   Referral[]   @relation("Referrer") // Referrals made by this user
-  referredBy  Referral[]   @relation("Referred") // Referrals where this user was referred
+  resetTokenExpiry DateTime?
+  referrals   Referral[]   @relation("Referrer") 
+  referredBy  Referral[]   @relation("Referred") 
+  subscriptions Subscription[]
+  currentSessionToken String? @unique 
 }
 
-model Referral {
-  id          String   @id @default(uuid())
-  referrerId  String   // ID of the user who made the referral
-  referredId  String   // ID of the user who was referred
-  earnings    Float    // Earnings for this referral
-  createdAt   DateTime @default(now())
-  referrer    User     @relation("Referrer", fields: [referrerId], references: [id])
-  referred    User     @relation("Referred", fields: [referredId], references: [id])
+enum ExamType {
+  WAEC
+  NECO
+  GCE
+  JAMB
+  POST_UTME
+  COMMON_ENTRANCE
+  PROFESSIONAL_EXAMS
 }
-
-model Admin {
-  id         Int      @id @default(autoincrement())
-  name       String
-  email      String   @unique
-  password   String
-  role       Role     @default(ADMIN)
-  createdAt  DateTime @default(now())
-}
-
 
 model Exam {
-  id                Int      @id @default(autoincrement())
-  questionsGroupId  String   // Foreign key to a group/category table
+  id                Int       @id @default(autoincrement())
+  questionsGroupId  String
   subjectName       String
-  examType          String   @default("WAEC")
+  examType          ExamType
   year              Int
   optionA           String?
   optionB           String?
@@ -71,6 +66,42 @@ model Exam {
   updatedAt         DateTime @updatedAt
   questions         Question[]
   examResults       ExamResult[]
+  
+  @@unique([subjectName, year, question], name: "subjectName_year_question")
+}
+
+
+model Subscription {
+  id              Int      @id @default(autoincrement())
+  userId          String
+  reference       String   @unique // Subscription code from Paystack
+  plan            String   // e.g., "Daily 50 Naira"
+  amount          Float    // e.g., 50 (in Naira)
+  startDate       DateTime
+  endDate         DateTime? // Optional, managed by Paystack for recurring
+  status          String   @default("active")
+  lastPaymentDate DateTime?
+  user            User     @relation(fields: [userId], references: [id])
+  examType ExamType @default(WAEC)
+}
+
+model Referral {
+  id          String   @id @default(uuid())
+  referrerId  String   // ID of the user who made the referral
+  referredId  String   // ID of the user who was referred
+  earnings    Float    // Earnings for this referral
+  createdAt   DateTime @default(now())
+  referrer    User     @relation("Referrer", fields: [referrerId], references: [id])
+  referred    User     @relation("Referred", fields: [referredId], references: [id])
+}
+
+model Admin {
+  id         String   @id @default(uuid())
+  name       String   @default("admin")
+  email      String   @unique 
+  password   String   
+  role       Role     @default(ADMIN)
+  createdAt  DateTime @default(now())
 }
 
 model Question {
@@ -110,4 +141,219 @@ enum Role {
   ADMIN 
 }
 
+enum SchoolType {
+  Primary_School
+  Secondary_School
+  Vocational_Institute
+}
 
+enum SchoolRole {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+model School {
+  id             Int          @id @default(autoincrement())
+  name           String
+  type           SchoolType
+  principalName  String
+  email          String       @unique
+  phone          String?
+  address        String?
+  city           String
+  state          String
+  logo           String?
+  isVerified     Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  exams          SchoolExam[]
+  classes        Class[]
+  subjects       Subject[]
+  schoolUsers    SchoolUser[]
+  teachers       Teacher[] 
+}
+
+
+model SchoolUser {
+  id           Int        @id @default(autoincrement())
+  email        String     @unique
+  password     String
+  role         SchoolRole
+  school       School     @relation(fields: [schoolId], references: [id])
+  schoolId     Int
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  otp         String?
+  otpExpires  DateTime?
+  fullName     String?
+  phone        String?
+  signInId    String? @unique
+  passwordReset  PasswordReset[]
+  teacher      Teacher?
+}
+
+model PasswordReset {
+  id          Int       @id @default(autoincrement())
+  token       String    @unique @db.VarChar(255)
+  expiresAt   DateTime
+  used        Boolean   @default(false)
+  schoolUser  SchoolUser @relation(fields: [schoolUserId], references: [id])
+  schoolUserId Int
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  @@index([schoolUserId])
+}
+
+
+model Class {
+  id        String       @id @default(uuid())
+  name      String       
+  school    School       @relation(fields: [schoolId], references: [id])
+  schoolId  Int
+  exams     SchoolExam[]
+  teacherClasses TeacherClass[] // Added relation to TeacherClass
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([name, schoolId])
+}
+
+model Subject {
+  id        String       @id @default(uuid())
+  name      String      
+  school    School       @relation(fields: [schoolId], references: [id])
+  schoolId  Int
+  exams     SchoolExam[]
+  teacherSubjects TeacherSubject[] // Added relation to TeacherSubject
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([name, schoolId])
+}
+
+model SchoolExam {
+  id             String        @id @default(uuid())
+  examName       String
+  name           String?
+  term           String     
+  subject        Subject       @relation(fields: [subjectId], references: [id])
+  subjectId      String
+  class          Class         @relation(fields: [classId], references: [id])
+  classId        String
+  examDate       DateTime
+  duration       Int           // Duration in minutes
+  instructions   String?       // Optional exam instructions
+  questionFile   String?       // Path to uploaded question file
+  status         ExamStatus    @default(DRAFT)
+  school         School        @relation(fields: [schoolId], references: [id])
+  schoolId       Int
+  examSessions   ExamSession[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model ExamSession {
+  id          String         @id @default(uuid())
+  startTime   DateTime
+  endTime     DateTime?
+  exam        SchoolExam     @relation(fields: [examId], references: [id])
+  examId      String
+  studentExams StudentExam[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model Student {
+  id           String        @id @default(uuid())
+  name         String
+  email        String        @unique
+  password     String
+  classId      String        
+  schoolId     String       
+  studentExams StudentExam[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model StudentExam {
+  id           String      @id @default(uuid())
+  student      Student     @relation(fields: [studentId], references: [id])
+  studentId    String
+  examSession  ExamSession @relation(fields: [sessionId], references: [id])
+  sessionId    String
+  score        Float?      
+  status       ExamStatus  @default(NOT_STARTED)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+enum ExamStatus {
+  DRAFT
+  PUBLISHED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+}
+
+
+
+model Teacher {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  classId   String
+  schoolId  Int
+  teacherSubjects TeacherSubject[] // Added relation to TeacherSubject
+  teacherClasses TeacherClass[]    // Added relation to TeacherClass
+  schoolUser SchoolUser? @relation(fields: [schoolUserId], references: [id])
+  school     School      @relation(fields: [schoolId], references: [id])
+  schoolUserId Int? @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+
+
+// Junction model for teacher-subject relationship
+model TeacherSubject {
+  id          String   @id @default(uuid())
+  teacher     Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  teacherId   String
+  subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  subjectId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([teacherId, subjectId])
+  @@index([teacherId])
+  @@index([subjectId])
+}
+
+// Junction model for teacher-class relationship
+model TeacherClass {
+  id          String   @id @default(uuid())
+  teacher     Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  teacherId   String
+  class       Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  classId     String
+  isClassTeacher Boolean @default(false)  // Whether this teacher is the main teacher for this class
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([teacherId, classId])
+  @@index([teacherId])
+  @@index([classId])
+}
+
+// Add this enum if it doesn't exist already
+enum SupervisorRole {
+  HEAD
+  ASSISTANT
+}
