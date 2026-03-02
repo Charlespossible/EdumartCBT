@@ -1,10 +1,10 @@
 import React from 'react'
-import Perfomance from '../components/Perfomance'
+import Performance from '../components/Performance'
 
 const Myperfomance: React.FC = () => {
   return (
     <div>
-        <Perfomance />    
+        <Performance/>    
     </div>
   )
 }

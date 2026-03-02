@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
 import StatsCard from "../components/StatsCard";
 import Profile from "../components/Profile";
-import Performance from "../components/Perfomance";
+import Performance from "../components/Performance";
 import ExamHistory from "../components/ExamHistory";
 import Setting from "../components/Setting";
 import { AuthContext } from "../context/AuthContext";

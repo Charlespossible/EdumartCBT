@@ -1,108 +1,157 @@
 import React, { useState, useCallback } from "react";
 import { LoginFormData, LoginFormProps } from "../types/LoginForm";
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 import { useNavigate, NavLink } from "react-router-dom";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import baseApi from "../utils/baseApi";
 import Cookies from "js-cookie";
-import { FaEnvelope, FaLock, FaEye, FaEyeSlash } from 'react-icons/fa';
+import { FaEnvelope, FaLock, FaEye, FaEyeSlash } from "react-icons/fa";
+
+interface LoginResponse {
+  user: {
+    firstName: string;
+    email: string;
+    role: string;
+    [key: string]: any;
+  };
+  accessToken: string;
+  message?: string;
+}
 
 const LoginForm: React.FC<LoginFormProps> = () => {
   const [formData, setFormData] = useState<LoginFormData>({
     email: "",
     password: "",
   });
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>(
+    {}
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
-  // Handle input changes
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    
-    // Clear error when user types
-    if (errors[name as keyof typeof errors]) {
-      setErrors(prev => ({ ...prev, [name]: undefined }));
-    }
-  }, [errors]);
+  // -------------------------
+  // Handle Input Changes
+  // -------------------------
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const { name, value } = e.target;
 
-  // Form validation
+      setFormData((prev) => ({ ...prev, [name]: value }));
+
+      if (errors[name as keyof typeof errors]) {
+        setErrors((prev) => ({ ...prev, [name]: undefined }));
+      }
+    },
+    [errors]
+  );
+
+  // -------------------------
+  // Form Validation
+  // -------------------------
   const validateForm = useCallback((): boolean => {
     const newErrors: { email?: string; password?: string } = {};
-    
+
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
     if (!emailRegex.test(formData.email)) {
       newErrors.email = "Please enter a valid email address";
     }
-    
+
     if (!formData.password) {
       newErrors.password = "Password is required";
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   }, [formData]);
 
-  // Handle form submission
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!validateForm()) return;
+  // -------------------------
+  // Handle Submit
+  // -------------------------
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
 
-    setIsSubmitting(true);
-    try {
-      const response = await axios.post(`${baseApi}/auth/login`, formData);
-      
-      // Store user data and tokens
-      const user = response.data.user;
-      localStorage.setItem("user", JSON.stringify(user));
-      localStorage.setItem("accessToken", response.data.accessToken);
-      localStorage.setItem("isLoggedIn", "true");
-      
-      // Set cookies with proper options
-      const cookieOptions = { 
-        secure: window.location.protocol === "https:", 
-        sameSite: "Lax" as const, 
-        path: "/" 
-      };
-      
-      Cookies.set("firstName", user.firstName, cookieOptions);
-      Cookies.set("email", user.email, cookieOptions);
-      Cookies.set("role", user.role, cookieOptions);
+      if (!validateForm()) return;
 
-      toast.success(response.data.message || "Login successful!");
-      setTimeout(() => navigate("/dashboard"), 2000);
-    } catch (error: any) {
-      if (error.response?.status === 403) {
-        toast.error("Already logged in on another device");
-      } else {
-        toast.error(error.response?.data?.message || "Invalid email or password");
+      setIsSubmitting(true);
+
+      try {
+        const response = await axios.post<LoginResponse>(
+          `${baseApi}/auth/login`,
+          formData
+        );
+
+        const { user, accessToken, message } = response.data;
+
+        if (!accessToken) {
+          throw new Error("Authentication token missing from server response");
+        }
+
+        // Clear stale auth first
+        localStorage.removeItem("accessToken");
+        localStorage.removeItem("user");
+
+        // Store fresh auth state
+        localStorage.setItem("accessToken", accessToken);
+        localStorage.setItem("user", JSON.stringify(user));
+
+        // Optional: store non-sensitive UI data in cookies
+        const cookieOptions = {
+          secure: window.location.protocol === "https:",
+          sameSite: "Lax" as const,
+          path: "/",
+        };
+
+        Cookies.set("firstName", user.firstName, cookieOptions);
+        Cookies.set("email", user.email, cookieOptions);
+        Cookies.set("role", user.role, cookieOptions);
+
+        toast.success(message || "Login successful!");
+        //setTimeout(() => navigate("/dashboard"), 2000);
+        // Navigate immediately (ProtectedRoute now validates properly)
+        setTimeout(() => navigate("/dashboard", { replace: true }), 2000);
+      } catch (err) {
+        const error = err as AxiosError<any>;
+
+        if (error.response?.status === 403) {
+          toast.error("Already logged in on another device");
+        } else {
+          toast.error(
+            error.response?.data?.message || "Invalid email or password"
+          );
+        }
+      } finally {
+        setIsSubmitting(false);
       }
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [formData, validateForm, navigate]);
+    },
+    [formData, validateForm, navigate]
+  );
 
-  // Toggle password visibility
+  // -------------------------
+  // Toggle Password Visibility
+  // -------------------------
   const togglePasswordVisibility = () => {
-    setShowPassword(prev => !prev);
+    setShowPassword((prev) => !prev);
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full bg-white rounded-lg shadow-md overflow-hidden">
         <div className="bg-[#66934e] py-4">
-          <h2 className="text-center text-2xl font-bold text-white">Login to Your Account</h2>
+          <h2 className="text-center text-2xl font-bold text-white">
+            Login to Your Account
+          </h2>
         </div>
-        
+
         <div className="px-6 py-8">
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Email Field */}
+            {/* Email */}
             <div>
-              <label htmlFor="email" className="block text-gray-700 text-sm font-medium mb-2">
+              <label className="block text-gray-700 text-sm font-medium mb-2">
                 Email Address
               </label>
               <div className="relative">
@@ -110,26 +159,23 @@ const LoginForm: React.FC<LoginFormProps> = () => {
                   <FaEnvelope className="text-gray-400" />
                 </div>
                 <input
-                  id="email"
                   type="text"
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
                   placeholder="Enter your email address"
-                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#66934e] focus:border-[#66934e]"
+                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#66934e]"
                   required
-                  aria-invalid={!!errors.email}
-                  aria-describedby={errors.email ? "email-error" : undefined}
                 />
               </div>
               {errors.email && (
-                <p id="email-error" className="text-red-500 text-sm mt-1">{errors.email}</p>
+                <p className="text-red-500 text-sm mt-1">{errors.email}</p>
               )}
             </div>
-            
-            {/* Password Field */}
+
+            {/* Password */}
             <div>
-              <label htmlFor="password" className="block text-gray-700 text-sm font-medium mb-2">
+              <label className="block text-gray-700 text-sm font-medium mb-2">
                 Password
               </label>
               <div className="relative">
@@ -137,61 +183,63 @@ const LoginForm: React.FC<LoginFormProps> = () => {
                   <FaLock className="text-gray-400" />
                 </div>
                 <input
-                  id="password"
                   type={showPassword ? "text" : "password"}
                   name="password"
                   value={formData.password}
                   onChange={handleChange}
                   placeholder="Enter your password"
-                  className="block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#66934e] focus:border-[#66934e]"
+                  className="block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#66934e]"
                   required
-                  aria-invalid={!!errors.password}
-                  aria-describedby={errors.password ? "password-error" : undefined}
                 />
                 <button
                   type="button"
                   onClick={togglePasswordVisibility}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-700 focus:outline-none"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500"
                 >
                   {showPassword ? <FaEyeSlash /> : <FaEye />}
                 </button>
               </div>
               {errors.password && (
-                <p id="password-error" className="text-red-500 text-sm mt-1">{errors.password}</p>
+                <p className="text-red-500 text-sm mt-1">{errors.password}</p>
               )}
             </div>
-            
-            {/* Forgot Password Link */}
+
+            {/* Forgot Password */}
             <div className="flex justify-end">
-              <NavLink to="/forgotpassword" className="text-sm text-[#66934e] hover:underline">
+              <NavLink
+                to="/forgotpassword"
+                className="text-sm text-[#66934e] hover:underline"
+              >
                 Forgot your password?
               </NavLink>
             </div>
-            
-            {/* Submit Button */}
+
+            {/* Submit */}
             <div className="mt-6">
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-white bg-[#66934e] hover:bg-[#5a8044] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#66934e] disabled:opacity-70 disabled:cursor-not-allowed"
+                className="w-full flex justify-center py-2 px-4 rounded-md text-white bg-[#66934e] hover:bg-[#5a8044] disabled:opacity-70"
               >
                 {isSubmitting ? "Logging in..." : "Log In"}
               </button>
             </div>
           </form>
-          
-          {/* Sign Up Link */}
+
           <div className="mt-6 text-center">
             <p className="text-gray-600">
               Don't have an account?{" "}
-              <NavLink to="/register" className="text-[#66934e] hover:underline font-medium">
+              <NavLink
+                to="/register"
+                className="text-[#66934e] hover:underline font-medium"
+              >
                 Sign up
               </NavLink>
             </p>
           </div>
         </div>
       </div>
+
       <ToastContainer position="top-right" autoClose={2000} />
     </div>
   );

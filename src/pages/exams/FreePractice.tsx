@@ -1,6 +1,6 @@
 import React from "react";
 import Navbar from "../../components/Navbar";
-import PracticeTest from "../../components/exams/PraticeTest";
+import PracticeTest from "../../components/exams/PracticeTest";
 import Footer from "../../components/Footer";
 
 
