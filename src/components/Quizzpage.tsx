@@ -1,14 +1,19 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import baseApi from "../utils/baseApi";
-
-// === IMPORT MATH HELPERS ===
 import { SmartImage, OptionalMathContent } from "./Maths";
 
-// ---- Types ----
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 export interface Question {
   id: number;
   question: string;
@@ -33,27 +38,553 @@ interface PaginationData {
   totalQuestions: number;
 }
 
+type ResultTab = "correct" | "incorrect" | "unattempted";
+
+// ─── Utility ──────────────────────────────────────────────────────────────────
+
+const formatTime = (seconds: number): string => {
+  const m = Math.floor(seconds / 60);
+  const s = String(seconds % 60).padStart(2, "0");
+  return `${m}:${s}`;
+};
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+/** Circular SVG progress ring used in the results screen */
+const CircularProgress: React.FC<{ percentage: number }> = ({ percentage }) => {
+  const radius = 54;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (percentage / 100) * circumference;
+  const color =
+    percentage >= 70 ? "#66934e" : percentage >= 50 ? "#f59e0b" : "#ef4444";
+
+  return (
+    <svg width="140" height="140" viewBox="0 0 140 140">
+      <circle cx="70" cy="70" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="10" />
+      <circle
+        cx="70"
+        cy="70"
+        r={radius}
+        fill="none"
+        stroke={color}
+        strokeWidth="10"
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        strokeLinecap="round"
+        transform="rotate(-90 70 70)"
+        style={{ transition: "stroke-dashoffset 0.8s ease" }}
+      />
+      <text
+        x="70"
+        y="65"
+        textAnchor="middle"
+        fontSize="22"
+        fontWeight="bold"
+        fill={color}
+      >
+        {percentage}%
+      </text>
+      <text x="70" y="85" textAnchor="middle" fontSize="11" fill="#6b7280">
+        Score
+      </text>
+    </svg>
+  );
+};
+
+/** Stat pill shown in the results summary row */
+const StatBadge: React.FC<{
+  label: string;
+  value: number;
+  color: string;
+  border: string;
+}> = ({ label, value, color, border }) => (
+  <div
+    className={`bg-white shadow-sm rounded-xl p-4 min-w-[110px] flex flex-col items-center border-t-4 ${border}`}
+  >
+    <span className={`text-3xl font-bold ${color}`}>{value}</span>
+    <span className="text-xs text-gray-500 mt-1 font-medium uppercase tracking-wide">
+      {label}
+    </span>
+  </div>
+);
+
+/** Sticky bar shown above questions during the quiz */
+const StickyBar: React.FC<{
+  attempted: number;
+  total: number;
+  timeRemaining: number;
+  progressWidth: number;
+}> = ({ attempted, total, timeRemaining, progressWidth }) => {
+  const urgent = timeRemaining < 300;
+  const critical = timeRemaining < 60;
+
+  return (
+    <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-gray-100 shadow-sm px-4 py-3">
+      <div className="flex flex-wrap justify-between items-center gap-3">
+        {/* Progress pill */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            Progress
+          </span>
+          <span className="bg-[#66934e] text-white text-sm font-semibold px-3 py-0.5 rounded-full">
+            {attempted} / {total}
+          </span>
+        </div>
+
+        {/* Timer */}
+        <div
+          className={`flex items-center gap-2 font-mono text-xl font-bold rounded-lg px-4 py-1.5 transition-colors duration-500 ${
+            critical
+              ? "bg-red-100 text-red-600 animate-pulse"
+              : urgent
+              ? "bg-orange-50 text-orange-500"
+              : "bg-gray-50 text-[#66934e]"
+          }`}
+        >
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <circle cx="12" cy="12" r="10" strokeWidth="2" />
+            <path strokeWidth="2" strokeLinecap="round" d="M12 6v6l4 2" />
+          </svg>
+          {formatTime(timeRemaining)}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mt-2.5 bg-gray-100 h-1.5 rounded-full overflow-hidden">
+        <div
+          className="bg-[#66934e] h-full rounded-full transition-all duration-500"
+          style={{ width: `${progressWidth}%` }}
+        />
+      </div>
+    </div>
+  );
+};
+
+/** Single option card rendered inside a QuestionItem */
+const OptionCard: React.FC<{
+  opt: string;
+  optionText: string;
+  questionId: number;
+  isSelected: boolean;
+  isCorrectChoice: boolean;
+  isWrongChoice: boolean;
+  isQuizEnded: boolean;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+}> = ({
+  opt,
+  optionText,
+  questionId,
+  isSelected,
+  isCorrectChoice,
+  isWrongChoice,
+  isQuizEnded,
+  onChange,
+}) => {
+  let cardStyle =
+    "flex items-center gap-3 p-3.5 rounded-xl border-2 transition-all duration-200 ";
+
+  if (isCorrectChoice) {
+    cardStyle += "border-green-400 bg-green-50";
+  } else if (isWrongChoice) {
+    cardStyle += "border-red-400 bg-red-50";
+  } else if (isSelected) {
+    cardStyle += "border-[#66934e] bg-[#f0f7ec]";
+  } else {
+    cardStyle += "border-gray-200 bg-white hover:border-[#66934e] hover:bg-[#fafdf8]";
+  }
+
+  if (!isQuizEnded) cardStyle += " cursor-pointer";
+
+  const labelLetter = (
+    <span
+      className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors duration-200 ${
+        isCorrectChoice
+          ? "bg-green-500 border-green-500 text-white"
+          : isWrongChoice
+          ? "bg-red-400 border-red-400 text-white"
+          : isSelected
+          ? "bg-[#66934e] border-[#66934e] text-white"
+          : "border-gray-300 text-gray-400"
+      }`}
+    >
+      {opt}
+    </span>
+  );
+
+  return (
+    <label className={cardStyle}>
+      <input
+        type="radio"
+        name={`question-${questionId}`}
+        value={opt}
+        checked={isSelected}
+        disabled={isQuizEnded}
+        onChange={onChange}
+        className="sr-only"
+      />
+      {labelLetter}
+      <span className="flex-1 text-sm text-gray-700 leading-snug">
+        <OptionalMathContent content={optionText} />
+      </span>
+      {isCorrectChoice && (
+        <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+        </svg>
+      )}
+      {isWrongChoice && (
+        <svg className="w-5 h-5 text-red-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+        </svg>
+      )}
+    </label>
+  );
+};
+
+/** A single quiz question with its answer options */
+const QuestionItem: React.FC<{
+  question: Question;
+  index: number;
+  userAnswer: string | undefined;
+  isQuizEnded: boolean;
+  showAnswer?: boolean;
+  onAnswerSelect: (questionId: number, optionText: string) => void;
+}> = ({ question, index, userAnswer, isQuizEnded, showAnswer = false, onAnswerSelect }) => {
+  const isAnswered = !!userAnswer;
+
+  return (
+    <div
+      className={`bg-white rounded-2xl shadow-sm border-2 transition-all duration-200 overflow-hidden ${
+        isAnswered && !isQuizEnded ? "border-[#66934e]/40" : "border-gray-100"
+      }`}
+    >
+      {/* Question header */}
+      <div className="flex items-start gap-3 p-5 pb-3">
+        <span
+          className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+            isAnswered && !isQuizEnded
+              ? "bg-[#66934e] text-white"
+              : "bg-gray-100 text-gray-500"
+          }`}
+        >
+          {index + 1}
+        </span>
+        <p className="text-gray-800 font-medium leading-relaxed">
+          <OptionalMathContent content={question.question} />
+        </p>
+      </div>
+
+      {question.questionImageUrl && (
+        <div className="px-5 pb-3">
+          <SmartImage src={question.questionImageUrl} alt="Question" />
+        </div>
+      )}
+
+      {/* Options */}
+      <div className="px-5 pb-5 space-y-2.5">
+        {(["A", "B", "C", "D"] as const).map((opt) => {
+          const key = `option${opt}` as keyof Question;
+          const optionText = question[key] as string | null;
+          if (!optionText) return null;
+
+          const isSelected = userAnswer === optionText;
+          const isCorrectChoice = showAnswer && question.correctAnswer === optionText;
+          const isWrongChoice = showAnswer && isSelected && !isCorrectChoice;
+
+          return (
+            <OptionCard
+              key={opt}
+              opt={opt}
+              optionText={optionText}
+              questionId={question.id}
+              isSelected={isSelected}
+              isCorrectChoice={isCorrectChoice}
+              isWrongChoice={isWrongChoice}
+              isQuizEnded={isQuizEnded}
+              onChange={(e) => {
+                e.preventDefault();
+                onAnswerSelect(question.id, optionText);
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+/** Pagination row at the bottom of the question list */
+const PaginationControls: React.FC<{
+  currentPage: number;
+  totalPages: number;
+  disabled: boolean;
+  onPageChange: (page: number) => void;
+}> = ({ currentPage, totalPages, disabled, onPageChange }) => (
+  <div className="flex justify-between items-center mt-6">
+    <button
+      onClick={() => onPageChange(currentPage - 1)}
+      disabled={currentPage === 1 || disabled}
+      className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-colors duration-200 ${
+        currentPage === 1 || disabled
+          ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+          : "bg-white border border-[#66934e] text-[#66934e] hover:bg-[#f0f7ec]"
+      }`}
+    >
+      ← Previous
+    </button>
+    <span className="text-sm text-gray-500 font-medium">
+      Page <span className="text-gray-800 font-semibold">{currentPage}</span> of{" "}
+      <span className="text-gray-800 font-semibold">{totalPages}</span>
+    </span>
+    <button
+      onClick={() => onPageChange(currentPage + 1)}
+      disabled={currentPage === totalPages || disabled}
+      className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-colors duration-200 ${
+        currentPage === totalPages || disabled
+          ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+          : "bg-[#66934e] text-white hover:bg-[#558040]"
+      }`}
+    >
+      Next →
+    </button>
+  </div>
+);
+
+/** Result card shown in the post-quiz review tabs */
+const ResultCard: React.FC<{
+  question: Question;
+  status: ResultTab;
+  userAnswer?: string;
+}> = ({ question, status, userAnswer }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const headerColor =
+    status === "correct"
+      ? "border-green-400"
+      : status === "incorrect"
+      ? "border-red-400"
+      : "border-gray-300";
+
+  const iconEl =
+    status === "correct" ? (
+      <span className="w-6 h-6 rounded-full bg-green-500 text-white flex items-center justify-center text-xs flex-shrink-0">✓</span>
+    ) : status === "incorrect" ? (
+      <span className="w-6 h-6 rounded-full bg-red-400 text-white flex items-center justify-center text-xs flex-shrink-0">✗</span>
+    ) : (
+      <span className="w-6 h-6 rounded-full bg-gray-300 text-white flex items-center justify-center text-xs flex-shrink-0">–</span>
+    );
+
+  return (
+    <div
+      className={`bg-white rounded-2xl shadow-sm border-l-4 ${headerColor} mb-3 overflow-hidden transition-all duration-200`}
+    >
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-start gap-3 p-4 text-left hover:bg-gray-50 transition-colors duration-150"
+      >
+        {iconEl}
+        <span className="flex-1 text-sm text-gray-800 font-medium leading-snug">
+          <OptionalMathContent content={question.question} />
+        </span>
+        <svg
+          className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3 border-t border-gray-100 pt-3">
+          {question.questionImageUrl && (
+            <SmartImage src={question.questionImageUrl} alt="Question" />
+          )}
+
+          {status === "incorrect" && userAnswer && (
+            <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 rounded-lg p-3">
+              <span className="flex-shrink-0 font-semibold">Your answer:</span>
+              <OptionalMathContent content={userAnswer} />
+            </div>
+          )}
+
+          {(status === "incorrect" || status === "unattempted") && question.correctAnswer && (
+            <div className="flex items-start gap-2 text-sm text-green-700 bg-green-50 rounded-lg p-3">
+              <span className="flex-shrink-0 font-semibold">Correct answer:</span>
+              <OptionalMathContent content={question.correctAnswer} />
+            </div>
+          )}
+
+          {question.explanation && (
+            <div className="flex items-start gap-2 text-sm text-gray-700 bg-amber-50 border-l-4 border-amber-400 rounded-lg p-3">
+              <span className="text-amber-500 flex-shrink-0">💡</span>
+              <OptionalMathContent content={question.explanation} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** Tab bar + content for the results review section */
+const ResultTabs: React.FC<{
+  activeTab: ResultTab;
+  onTabChange: (tab: ResultTab) => void;
+  counts: { correct: number; incorrect: number; unattempted: number };
+  filters: { correct: Question[]; incorrect: Question[]; unattempted: Question[] };
+  userAnswers: Record<number, string>;
+}> = ({ activeTab, onTabChange, counts, filters, userAnswers }) => {
+  const tabs: { key: ResultTab; label: string; color: string; active: string }[] = [
+    { key: "correct", label: "Correct", color: "text-green-600", active: "border-green-500 text-green-700" },
+    { key: "incorrect", label: "Incorrect", color: "text-red-500", active: "border-red-500 text-red-600" },
+    { key: "unattempted", label: "Skipped", color: "text-gray-500", active: "border-gray-500 text-gray-700" },
+  ];
+
+  const emptyMessages: Record<ResultTab, string> = {
+    correct: "No correct answers yet.",
+    incorrect: "🎉 No incorrect answers — well done!",
+    unattempted: "✅ You attempted every question!",
+  };
+
+  return (
+    <div>
+      {/* Tab list */}
+      <div className="flex border-b border-gray-200 mb-4">
+        {tabs.map(({ key, label, active }) => (
+          <button
+            key={key}
+            onClick={() => onTabChange(key)}
+            className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors duration-200 ${
+              activeTab === key ? active : "border-transparent text-gray-400 hover:text-gray-600"
+            }`}
+          >
+            {label}
+            <span
+              className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
+                activeTab === key ? "bg-gray-100" : "bg-gray-50"
+              }`}
+            >
+              {counts[key]}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      <div>
+        {filters[activeTab].length === 0 ? (
+          <div className="text-center py-10 text-gray-500 text-sm bg-gray-50 rounded-2xl border border-gray-100">
+            {emptyMessages[activeTab]}
+          </div>
+        ) : (
+          filters[activeTab].map((q) => (
+            <ResultCard
+              key={q.id}
+              question={q}
+              status={activeTab}
+              userAnswer={userAnswers[q.id]}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
+/** Confirmation modal before submitting */
+const SubmitConfirmModal: React.FC<{
+  unattempted: number;
+  total: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}> = ({ unattempted, total, onConfirm, onCancel }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div className="bg-white rounded-2xl shadow-2xl p-8 mx-4 max-w-sm w-full">
+      <div className="text-center mb-5">
+        <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
+          <svg className="w-7 h-7 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeWidth="2" strokeLinecap="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+        </div>
+        <h3 className="text-lg font-bold text-gray-800">Submit Exam?</h3>
+        {unattempted > 0 && (
+          <p className="text-sm text-gray-500 mt-2">
+            You have{" "}
+            <span className="font-semibold text-amber-600">
+              {unattempted} unanswered
+            </span>{" "}
+            question{unattempted !== 1 ? "s" : ""} out of {total}.
+          </p>
+        )}
+        {unattempted === 0 && (
+          <p className="text-sm text-gray-500 mt-2">You answered all questions. Ready to submit?</p>
+        )}
+      </div>
+      <div className="flex gap-3">
+        <button
+          onClick={onCancel}
+          className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-medium hover:bg-gray-50 transition-colors duration-200"
+        >
+          Go Back
+        </button>
+        <button
+          onClick={onConfirm}
+          className="flex-1 py-2.5 rounded-xl bg-[#66934e] text-white font-medium hover:bg-[#558040] transition-colors duration-200"
+        >
+          Submit
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+// ─── Main Component ────────────────────────────────────────────────────────────
+
 const QuizPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // ---------- Refs for precise layout ----------
   const headerRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
   const stickyRef = useRef<HTMLDivElement | null>(null);
   const questionsContainerRef = useRef<HTMLDivElement | null>(null);
   const [containerHeight, setContainerHeight] = useState<number>(0);
 
-  // -------------------- STATE --------------------
+  // ── State ──────────────────────────────────────────────────────────────────
   const [questions, setQuestions] = useState<Question[]>([]);
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
+  const [timeRemaining, setTimeRemaining] = useState<number>(3600);
+  const [isQuizEnded, setIsQuizEnded] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
+  const resultAlreadySubmitted = useRef<boolean>(false);
+  const [userData, setUserData] = useState<UserData>({ id: "", firstName: "User" });
+  const [pagination, setPagination] = useState<PaginationData>({
+    currentPage: 1,
+    totalPages: 1,
+    totalQuestions: 0,
+  });
+  const [activeTab, setActiveTab] = useState<ResultTab>("correct");
 
-  /**
-   * correctAnswers is derived locally — no network call needed.
-   * `correctAnswer` is already present on every Question object
-   * returned by GET /exam/questions, so we compare in-memory.
-   */
+  // ── Derived ────────────────────────────────────────────────────────────────
+
+  const queryParams = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return {
+      examType: params.get("examType"),
+      subjectName: params.get("subjectName"),
+      year: params.get("year"),
+    };
+  }, [location.search]);
+
   const correctAnswers = useMemo<Record<number, boolean>>(() => {
     const source = allQuestions.length ? allQuestions : questions;
     const map: Record<number, boolean> = {};
@@ -66,116 +597,6 @@ const QuizPage: React.FC = () => {
     }
     return map;
   }, [userAnswers, allQuestions, questions]);
-
-  /** Score is derived from correctAnswers — always in sync, no extra state. */
-  const score = useMemo(
-    () => Object.values(correctAnswers).filter(Boolean).length,
-    [correctAnswers]
-  );
-
-  const [timeRemaining, setTimeRemaining] = useState<number>(3600);
-  const [isQuizEnded, setIsQuizEnded] = useState<boolean>(false);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const resultAlreadySubmitted = useRef<boolean>(false);
-
-  const [userData, setUserData] = useState<UserData>({ id: "", firstName: "User" });
-
-  const [pagination, setPagination] = useState<PaginationData>({
-    currentPage: 1,
-    totalPages: 1,
-    totalQuestions: 0,
-  });
-  const [activeTab, setActiveTab] = useState<"correct" | "incorrect" | "unattempted">("correct");
-
-  // -------------------- QUERY PARAMS --------------------
-  const queryParams = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    return {
-      examType: params.get("examType"),
-      subjectName: params.get("subjectName"),
-      year: params.get("year"),
-    };
-  }, [location.search]);
-
-  // -------------------- LOAD USER --------------------
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("user");
-      if (stored) setUserData(JSON.parse(stored));
-    } catch (err) {
-      console.error("Error parsing user data", err);
-    }
-  }, []);
-
-  // -------------------- FETCH QUESTIONS --------------------
-  useEffect(() => {
-    const controller = new AbortController();
-    const run = async () => {
-      try {
-        setLoading(true);
-        const res = await axios.get(`${baseApi}/exam/questions`, {
-          params: { ...queryParams, page: pagination.currentPage },
-          signal: controller.signal,
-        });
-
-        const fetched: Question[] = res.data?.questions ?? [];
-        setQuestions(fetched);
-
-        // accumulate unique questions across pages
-        setAllQuestions((prev) => {
-          if (fetched.length === 0) return prev;
-          const map = new Map<number, Question>(prev.map((q) => [q.id, q]));
-          for (const q of fetched) if (!map.has(q.id)) map.set(q.id, q);
-          return Array.from(map.values());
-        });
-
-        setPagination((p) => ({
-          ...p,
-          totalPages: res.data?.totalPages ?? p.totalPages,
-          totalQuestions: res.data?.totalQuestions ?? p.totalQuestions,
-        }));
-      } catch (err) {
-        if (!axios.isCancel(err)) {
-          console.error("Error fetching questions", err);
-          toast.error("Failed to fetch questions. Please try again.");
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-    run();
-    return () => controller.abort();
-  }, [queryParams, pagination.currentPage]);
-
-  // -------------------- TIMER --------------------
-  useEffect(() => {
-    if (timeRemaining <= 0 || isQuizEnded) return;
-    const t = setInterval(() => setTimeRemaining((s) => s - 1), 1000);
-    return () => clearInterval(t);
-  }, [timeRemaining, isQuizEnded]);
-
-  // -------------------- ANSWER SELECTION --------------------
-  /**
-   * Pure local state update — ZERO network I/O.
-   *
-   * Previously this called POST /exam/validate-answer on every click, which:
-   *   - Broke answer registration when offline or on a slow connection
-   *   - Created race conditions when the user clicked quickly
-   *   - Made the UI dependent on server availability just to record a selection
-   *
-   * Fix: `correctAnswer` is already present on the Question object returned by
-   * GET /exam/questions.  We derive correctness in-memory via the `correctAnswers`
-   * memo above.  The single authoritative server-side score is computed once,
-   * at final submission (submitExamResult).
-   */
-  const handleAnswerSelect = useCallback(
-    (_event: React.ChangeEvent<HTMLInputElement>, questionId: number, optionText: string) => {
-      if (isQuizEnded) return;
-      setUserAnswers((prev) => ({ ...prev, [questionId]: optionText }));
-    },
-    [isQuizEnded]
-  );
 
   const totalQuestionsSafe = useMemo(() => {
     if (pagination.totalQuestions > 0) return pagination.totalQuestions;
@@ -199,46 +620,112 @@ const QuizPage: React.FC = () => {
     return (examStats.attempted / totalQuestionsSafe) * 100;
   }, [examStats.attempted, totalQuestionsSafe]);
 
-  // -------------------- PAGINATION --------------------
+  const questionFilters = useMemo(() => {
+    const source = allQuestions.length ? allQuestions : questions;
+    return {
+      correct: source.filter((q) => correctAnswers[q.id]),
+      incorrect: source.filter((q) => userAnswers[q.id] && !correctAnswers[q.id]),
+      unattempted: source.filter((q) => !userAnswers[q.id]),
+    };
+  }, [allQuestions, questions, correctAnswers, userAnswers]);
+
+  // ── Effects ────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("user");
+      if (stored) setUserData(JSON.parse(stored));
+    } catch (err) {
+      console.error("Error parsing user data", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const run = async () => {
+      try {
+        setLoading(true);
+        const res = await axios.get(`${baseApi}/exam/questions`, {
+          params: { ...queryParams, page: pagination.currentPage },
+          signal: controller.signal,
+        });
+        const fetched: Question[] = res.data?.questions ?? [];
+        setQuestions(fetched);
+        setAllQuestions((prev) => {
+          if (fetched.length === 0) return prev;
+          const map = new Map<number, Question>(prev.map((q) => [q.id, q]));
+          for (const q of fetched) if (!map.has(q.id)) map.set(q.id, q);
+          return Array.from(map.values());
+        });
+        setPagination((p) => ({
+          ...p,
+          totalPages: res.data?.totalPages ?? p.totalPages,
+          totalQuestions: res.data?.totalQuestions ?? p.totalQuestions,
+        }));
+      } catch (err) {
+        if (!axios.isCancel(err)) {
+          console.error("Error fetching questions", err);
+          toast.error("Failed to fetch questions. Please try again.");
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    run();
+    return () => controller.abort();
+  }, [queryParams, pagination.currentPage]);
+
+  useEffect(() => {
+    if (timeRemaining <= 0 || isQuizEnded) return;
+    const t = setInterval(() => setTimeRemaining((s) => s - 1), 1000);
+    return () => clearInterval(t);
+  }, [timeRemaining, isQuizEnded]);
+
+  // Layout sizing
+  useEffect(() => {
+    const recompute = () => {
+      const headerH = headerRef.current?.offsetHeight ?? 0;
+      const footerH = footerRef.current?.offsetHeight ?? 0;
+      const viewport = window.innerHeight;
+      setContainerHeight(Math.max(300, viewport - headerH - footerH - 20));
+    };
+    let tid: NodeJS.Timeout;
+    const debounced = () => { clearTimeout(tid); tid = setTimeout(recompute, 100); };
+    recompute();
+    const observers = [
+      headerRef.current && new ResizeObserver(debounced),
+      footerRef.current && new ResizeObserver(debounced),
+      stickyRef.current && new ResizeObserver(debounced),
+    ].filter(Boolean) as ResizeObserver[];
+    if (headerRef.current && observers[0]) observers[0].observe(headerRef.current);
+    if (footerRef.current && observers[1]) observers[1].observe(footerRef.current);
+    if (stickyRef.current && observers[2]) observers[2].observe(stickyRef.current);
+    window.addEventListener("resize", debounced);
+    window.addEventListener("orientationchange", debounced);
+    return () => {
+      clearTimeout(tid);
+      observers.forEach((o) => o.disconnect());
+      window.removeEventListener("resize", debounced);
+      window.removeEventListener("orientationchange", debounced);
+    };
+  }, []);
+
+  // ── Handlers ───────────────────────────────────────────────────────────────
+
+  const handleAnswerSelect = useCallback(
+    (questionId: number, optionText: string) => {
+      if (isQuizEnded) return;
+      setUserAnswers((prev) => ({ ...prev, [questionId]: optionText }));
+    },
+    [isQuizEnded]
+  );
+
   const handlePageChange = (newPage: number) => {
     if (newPage < 1 || newPage > pagination.totalPages) return;
-    if (questionsContainerRef.current) {
-      questionsContainerRef.current.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    questionsContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
     setPagination((p) => ({ ...p, currentPage: newPage }));
   };
 
-  const PaginationControls = () => (
-    <div className="flex justify-between items-center mt-6">
-      <button
-        onClick={() => handlePageChange(pagination.currentPage - 1)}
-        disabled={pagination.currentPage === 1 || isQuizEnded}
-        className={`px-4 py-2 rounded-lg ${
-          pagination.currentPage === 1 || isQuizEnded
-            ? "bg-gray-300 cursor-not-allowed"
-            : "bg-[#66934e] text-white hover:bg-[#558040]"
-        }`}
-      >
-        Previous
-      </button>
-      <span className="text-gray-600">
-        Page {pagination.currentPage} of {pagination.totalPages}
-      </span>
-      <button
-        onClick={() => handlePageChange(pagination.currentPage + 1)}
-        disabled={pagination.currentPage === pagination.totalPages || isQuizEnded}
-        className={`px-4 py-2 rounded-lg ${
-          pagination.currentPage === pagination.totalPages || isQuizEnded
-            ? "bg-gray-300 cursor-not-allowed"
-            : "bg-[#66934e] text-white hover:bg-[#558040]"
-        }`}
-      >
-        Next
-      </button>
-    </div>
-  );
-
-  // -------------------- SUBMIT --------------------
   const submitExamResult = useCallback(async () => {
     if (resultAlreadySubmitted.current) return;
     try {
@@ -276,20 +763,12 @@ const QuizPage: React.FC = () => {
     submitExamResult();
   }, [submitExamResult, isSubmitting, isQuizEnded]);
 
+  // Auto-submit on timer expiry
   useEffect(() => {
     if (timeRemaining <= 0 && !isQuizEnded && !isSubmitting) {
       handleSubmitExam();
     }
   }, [timeRemaining, isQuizEnded, isSubmitting, handleSubmitExam]);
-
-  const questionFilters = useMemo(() => {
-    const source = allQuestions.length ? allQuestions : questions;
-    return {
-      correct: source.filter((q) => correctAnswers[q.id]),
-      incorrect: source.filter((q) => userAnswers[q.id] && !correctAnswers[q.id]),
-      unattempted: source.filter((q) => !userAnswers[q.id]),
-    };
-  }, [allQuestions, questions, correctAnswers, userAnswers]);
 
   const restartQuiz = useCallback(() => {
     setUserAnswers({});
@@ -301,420 +780,220 @@ const QuizPage: React.FC = () => {
     setPagination((p) => ({ ...p, currentPage: 1 }));
   }, []);
 
-  // ---------- Layout sizing ----------
-  useEffect(() => {
-    const recompute = () => {
-      const headerH = headerRef.current?.offsetHeight ?? 0;
-      const footerH = footerRef.current?.offsetHeight ?? 0;
-      const viewport = window.innerHeight;
-      const padding = 20;
-      const h = Math.max(300, viewport - headerH - footerH - padding);
-      setContainerHeight(h);
-    };
-    let timeoutId: NodeJS.Timeout;
-    const debouncedRecompute = () => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(recompute, 100);
-    };
-    recompute();
-    const roHeader = headerRef.current ? new ResizeObserver(debouncedRecompute) : null;
-    const roFooter = footerRef.current ? new ResizeObserver(debouncedRecompute) : null;
-    const roSticky = stickyRef.current ? new ResizeObserver(debouncedRecompute) : null;
-    if (headerRef.current && roHeader) roHeader.observe(headerRef.current);
-    if (footerRef.current && roFooter) roFooter.observe(footerRef.current);
-    if (stickyRef.current && roSticky) roSticky.observe(stickyRef.current);
-    window.addEventListener("resize", debouncedRecompute);
-    window.addEventListener("orientationchange", debouncedRecompute);
-    return () => {
-      clearTimeout(timeoutId);
-      if (roHeader && headerRef.current) roHeader.unobserve(headerRef.current);
-      if (roFooter && footerRef.current) roFooter.unobserve(footerRef.current);
-      if (roSticky && stickyRef.current) roSticky.unobserve(stickyRef.current);
-      window.removeEventListener("resize", debouncedRecompute);
-      window.removeEventListener("orientationchange", debouncedRecompute);
-    };
-  }, []);
+  // ── Render ─────────────────────────────────────────────────────────────────
 
-  // -------------------- QUESTION ITEM --------------------
-  const QuestionItem: React.FC<{ question: Question; index: number; showAnswer?: boolean }> = ({
-    question,
-    index,
-    showAnswer = false,
-  }) => (
-    <div className="bg-white p-5 rounded-lg shadow-md hover:shadow-lg transition-shadow duration-200">
-      {/* Render question with math support */}
-      <p className="font-bold text-lg mb-3">
-        {index + 1}. <OptionalMathContent content={question.question} />
-      </p>
-
-      {question.questionImageUrl && (
-        <div className="mb-4">
-          <SmartImage src={question.questionImageUrl} alt="Question" />
-        </div>
-      )}
-
-      <div className="mt-3 space-y-3">
-        {["A", "B", "C", "D"].map((opt) => {
-          const key = `option${opt}` as keyof Question;
-          const optionText = question[key] as unknown as string | null;
-          if (!optionText) return null;
-
-          const isSelected = userAnswers[question.id] === optionText;
-          const isCorrectChoice = showAnswer && question.correctAnswer === optionText;
-
-          return (
-            <label
-              key={opt}
-              className={`flex items-center p-3 rounded-lg transition-colors duration-200 ${
-                isQuizEnded ? "" : "cursor-pointer hover:bg-gray-100"
-              } ${isSelected ? "bg-blue-50 border border-blue-200" : ""} ${
-                showAnswer && isCorrectChoice ? "bg-green-50 border border-green-200" : ""
-              } ${
-                showAnswer && isSelected && !isCorrectChoice ? "bg-red-50 border border-red-200" : ""
-              }`}
-            >
-              <input
-                type="radio"
-                name={`question-${question.id}`}
-                value={opt}
-                checked={isSelected}
-                disabled={isQuizEnded}
-                onChange={(e) =>
-                  optionText && handleAnswerSelect(e, question.id, optionText)
-                }
-                className="mr-3 h-4 w-4 accent-[#66934e] focus:outline-none"
-                onFocus={(e) => e.target.blur()}
-              />
-              {/* Render option with math support */}
-              <OptionalMathContent content={optionText} />
-              {showAnswer && isCorrectChoice && (
-                <span className="ml-auto text-green-600">✓</span>
-              )}
-            </label>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  const ResultCard: React.FC<{ question: Question; status: "correct" | "incorrect" | "unattempted" }> =
-    ({ question, status }) => {
-      const statusIcon =
-        status === "correct" ? "✅" : status === "incorrect" ? "❌" : "❓";
-      const statusColor =
-        status === "correct" ? "#66934e" : status === "incorrect" ? "red" : "gray";
-
-      return (
-        <div className="p-5 border rounded-lg bg-white shadow-sm hover:shadow-md transition-shadow duration-200 mb-4">
-          <p className="font-bold text-lg flex items-start mb-3">
-            <span style={{ color: statusColor, marginRight: 10 }}>{statusIcon}</span>
-            <OptionalMathContent content={question.question} />
-          </p>
-
-          {question.questionImageUrl && (
-            <SmartImage src={question.questionImageUrl} alt="Question" />
-          )}
-
-          {status === "incorrect" && (
-            <p className="mb-2 text-red-600">
-              Your answer: <OptionalMathContent content={userAnswers[question.id]} />
-            </p>
-          )}
-
-          {(status === "incorrect" || status === "unattempted") &&
-            question.correctAnswer && (
-              <p className="mb-2 text-green-600 font-medium">
-                Correct answer:{" "}
-                <OptionalMathContent content={question.correctAnswer} />
-              </p>
-            )}
-
-          {question.explanation && (
-            <div className="mt-3 p-3 bg-gray-50 rounded-lg border-l-4 border-[#66934e]">
-              <p className="flex items-start">
-                <span style={{ color: "#66934e", marginRight: 8 }}>💡</span>
-                <OptionalMathContent content={question.explanation} />
-              </p>
-            </div>
-          )}
-        </div>
-      );
-    };
-
-  // -------------------- RENDER --------------------
   return (
     <div className="bg-gray-50 min-h-screen">
       <ToastContainer position="top-right" autoClose={3000} />
-      {/* Header */}
-      <header ref={headerRef} className="bg-white shadow-md py-6 px-4 mb-6">
-        <div className="max-w-6xl mx-auto">
-          <h1 className="text-3xl font-bold text-center text-gray-800">
-            Take Exam
+
+      {showConfirmModal && (
+        <SubmitConfirmModal
+          unattempted={examStats.unattempted}
+          total={totalQuestionsSafe}
+          onConfirm={() => {
+            setShowConfirmModal(false);
+            handleSubmitExam();
+          }}
+          onCancel={() => setShowConfirmModal(false)}
+        />
+      )}
+
+      {/* ── Header ── */}
+      <header
+        ref={headerRef}
+        className="bg-white border-b border-gray-100 shadow-sm py-5 px-4"
+      >
+        <div className="max-w-3xl mx-auto">
+          <h1 className="text-2xl font-bold text-center text-gray-800 tracking-tight">
+            {isQuizEnded ? "Exam Results" : "Take Exam"}
           </h1>
-          <div className="flex justify-center">
-            <hr className="border-b-2 border-[#66934e] mt-4 w-20" />
+          <div className="flex justify-center mt-2">
+            <div className="w-10 h-0.5 bg-[#66934e] rounded-full" />
           </div>
-          {!loading && !isQuizEnded && (
-            <div className="mt-4 flex justify-center text-gray-700">
-              <span className="font-medium">{queryParams.examType}</span> -
-              <span className="mx-2">{queryParams.subjectName}</span> -
-              <span>{queryParams.year}</span>
+          {!loading && (
+            <div className="mt-3 flex justify-center gap-2 flex-wrap">
+              {[queryParams.examType, queryParams.subjectName, queryParams.year]
+                .filter(Boolean)
+                .map((tag, i) => (
+                  <span
+                    key={i}
+                    className="text-xs bg-[#f0f7ec] text-[#66934e] font-semibold px-3 py-1 rounded-full border border-[#66934e]/20"
+                  >
+                    {tag}
+                  </span>
+                ))}
             </div>
           )}
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 pb-28">
+      {/* ── Main ── */}
+      <main className="max-w-3xl mx-auto px-4 pb-28">
         {loading ? (
-          <div className="flex flex-col items-center justify-center h-64">
-            <div className="w-16 h-16 border-4 border-[#66934e] border-t-transparent rounded-full animate-spin" />
-            <p className="mt-4 text-lg font-medium text-gray-700">
-              Loading exam questions...
-            </p>
+          <div className="flex flex-col items-center justify-center h-64 gap-4">
+            <div className="w-12 h-12 border-4 border-[#66934e] border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm font-medium text-gray-500">Loading questions…</p>
           </div>
         ) : (
           <div
             ref={questionsContainerRef}
-            className="questions-container relative overflow-y-auto scroll-smooth"
-            style={{
-              height: containerHeight ? `${containerHeight}px` : undefined,
-              scrollBehavior: "smooth",
-            }}
+            className="relative overflow-y-auto scroll-smooth"
+            style={{ height: containerHeight ? `${containerHeight}px` : undefined }}
           >
+            {/* Active quiz view */}
             {!isQuizEnded && (
-              <div
-                ref={stickyRef}
-                className="sticky top-0 z-20 bg-white/98 backdrop-blur-sm p-4 border-b border-gray-200 shadow-sm"
-              >
-                <div className="flex flex-wrap justify-between items-center gap-3">
-                  <div className="font-medium text-gray-600">
-                    <span>Questions:</span>
-                    <span className="ml-2 bg-[#66934e] text-white py-1 px-3 rounded-full text-sm">
-                      {examStats.attempted} / {totalQuestionsSafe}
-                    </span>
-                  </div>
-                  <div className="font-bold text-xl flex items-center">
-                    <span className="text-gray-700 mr-2">Time:</span>
-                    <span
-                      className={`${
-                        timeRemaining < 300 ? "text-red-600" : "text-[#66934e]"
-                      } ${timeRemaining < 60 ? "animate-pulse" : ""}`}
-                    >
-                      {Math.floor(timeRemaining / 60)}:
-                      {String(timeRemaining % 60).padStart(2, "0")}
-                    </span>
-                  </div>
-                  <div className="font-medium text-gray-600">
-                    <span>Score:</span>
-                    <span className="ml-2 bg-blue-100 text-blue-800 py-1 px-3 rounded-full text-sm">
-                      {score} / {totalQuestionsSafe}
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-3 bg-gray-200 h-2 rounded-full overflow-hidden">
-                  <div
-                    className="bg-[#66934e] h-full rounded-full transition-all duration-300"
-                    style={{ width: `${progressWidth}%` }}
+              <>
+                <div ref={stickyRef}>
+                  <StickyBar
+                    attempted={examStats.attempted}
+                    total={totalQuestionsSafe}
+                    timeRemaining={timeRemaining}
+                    progressWidth={progressWidth}
                   />
                 </div>
-              </div>
-            )}
 
-            {/* QUESTION LIST */}
-            <div className="space-y-6 mt-4 pb-6">
-              {!isQuizEnded ? (
-                <>
+                <div className="space-y-4 mt-4 pb-6">
                   {questions.map((q, idx) => (
                     <QuestionItem
                       key={q.id}
                       question={q}
                       index={(pagination.currentPage - 1) * 10 + idx}
+                      userAnswer={userAnswers[q.id]}
+                      isQuizEnded={isQuizEnded}
+                      onAnswerSelect={handleAnswerSelect}
                     />
                   ))}
-                  <div className="pt-4">
-                    <PaginationControls />
-                  </div>
-                </>
-              ) : (
-                <div>
-                  <div className="mb-6 text-center">
-                    <h3 className="text-2xl font-bold mb-2">
-                      {userData.firstName}, Your Exam Results
-                    </h3>
-                    <hr className="border-b-2 border-[#66934e] mb-4 w-32 mx-auto" />
-                    <div className="flex flex-col md:flex-row justify-center gap-6 mb-6">
-                      <div className="bg-white shadow-md rounded-lg p-4 flex-1 max-w-[200px] border-t-4 border-[#66934e] mx-auto md:mx-0">
-                        <p className="text-4xl font-bold text-[#66934e] text-center">
-                          {score}
-                        </p>
-                        <p className="text-gray-600 text-center">
-                          out of {totalQuestionsSafe}
-                        </p>
-                        <div className="mt-2 flex justify-center">
-                          <span
-                            className={`px-3 py-1 rounded-full text-white text-sm font-medium ${
-                              examStats.percentage >= 70
-                                ? "bg-green-500"
-                                : examStats.percentage >= 50
-                                ? "bg-yellow-500"
-                                : "bg-red-500"
-                            }`}
-                          >
-                            {examStats.percentage}%
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-3 justify-center">
-                        <div className="bg-white shadow-md rounded-lg p-3 border-l-4 border-green-500 min-w-[120px]">
-                          <p className="font-medium text-center">Correct</p>
-                          <p className="text-2xl font-bold text-center text-green-600">
-                            {examStats.passed}
-                          </p>
-                        </div>
-                        <div className="bg-white shadow-md rounded-lg p-3 border-l-4 border-red-500 min-w-[120px]">
-                          <p className="font-medium text-center">Incorrect</p>
-                          <p className="text-2xl font-bold text-center text-red-600">
-                            {examStats.failed}
-                          </p>
-                        </div>
-                        <div className="bg-white shadow-md rounded-lg p-3 border-l-4 border-gray-500 min-w-[120px]">
-                          <p className="font-medium text-center">Unattempted</p>
-                          <p className="text-2xl font-bold text-center text-gray-600">
-                            {examStats.unattempted}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                  <PaginationControls
+                    currentPage={pagination.currentPage}
+                    totalPages={pagination.totalPages}
+                    disabled={isQuizEnded}
+                    onPageChange={handlePageChange}
+                  />
+                </div>
+              </>
+            )}
 
-                    <div className="border-b border-gray-200">
-                      <ul className="flex flex-wrap -mb-px text-sm font-medium text-center">
-                        {(["correct", "incorrect", "unattempted"] as const).map((tab) => (
-                          <li className="mr-2" key={tab}>
-                            <button
-                              onClick={() => setActiveTab(tab)}
-                              className={`inline-block p-4 rounded-t-lg ${
-                                activeTab === tab
-                                  ? "text-[#66934e] border-b-2 border-[#66934e]"
-                                  : "text-gray-500 hover:text-gray-600 hover:border-gray-300 border-b-2 border-transparent"
-                              }`}
-                            >
-                              {tab.charAt(0).toUpperCase() + tab.slice(1)} (
-                              {tab === "correct"
-                                ? examStats.passed
-                                : tab === "incorrect"
-                                ? examStats.failed
-                                : examStats.unattempted}
-                              )
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+            {/* Results view */}
+            {isQuizEnded && (
+              <div className="py-6 space-y-6">
+                {/* Summary */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-center">
+                  <h2 className="text-xl font-bold text-gray-800 mb-1">
+                    {userData.firstName}, here are your results!
+                  </h2>
+                  <p className="text-sm text-gray-500 mb-5">
+                    {queryParams.examType} · {queryParams.subjectName} · {queryParams.year}
+                  </p>
 
-                    <div className="pt-4">
-                      {activeTab === "correct" &&
-                        (questionFilters.correct.length ? (
-                          questionFilters.correct.map((q) => (
-                            <ResultCard key={q.id} question={q} status="correct" />
-                          ))
-                        ) : (
-                          <div className="text-center p-8 bg-gray-50 rounded-lg border border-gray-200">
-                            <p className="text-gray-600 font-medium">
-                              No correct answers yet
-                            </p>
-                          </div>
-                        ))}
-                      {activeTab === "incorrect" &&
-                        (questionFilters.incorrect.length ? (
-                          questionFilters.incorrect.map((q) => (
-                            <ResultCard key={q.id} question={q} status="incorrect" />
-                          ))
-                        ) : (
-                          <div className="text-center p-8 bg-gray-50 rounded-lg border border-gray-200">
-                            <p className="text-gray-600 font-medium">
-                              Perfect! No incorrect answers
-                            </p>
-                          </div>
-                        ))}
-                      {activeTab === "unattempted" &&
-                        (questionFilters.unattempted.length ? (
-                          questionFilters.unattempted.map((q) => (
-                            <ResultCard key={q.id} question={q} status="unattempted" />
-                          ))
-                        ) : (
-                          <div className="text-center p-8 bg-gray-50 rounded-lg border border-gray-200">
-                            <p className="text-gray-600 font-medium">
-                              Great! You attempted all questions
-                            </p>
-                          </div>
-                        ))}
+                  <div className="flex flex-col md:flex-row items-center justify-center gap-6">
+                    <CircularProgress percentage={examStats.percentage} />
+
+                    <div className="flex flex-wrap gap-3 justify-center">
+                      <StatBadge
+                        label="Correct"
+                        value={examStats.passed}
+                        color="text-green-600"
+                        border="border-green-400"
+                      />
+                      <StatBadge
+                        label="Incorrect"
+                        value={examStats.failed}
+                        color="text-red-500"
+                        border="border-red-400"
+                      />
+                      <StatBadge
+                        label="Skipped"
+                        value={examStats.unattempted}
+                        color="text-gray-500"
+                        border="border-gray-300"
+                      />
+                      <StatBadge
+                        label="Attempted"
+                        value={examStats.attempted}
+                        color="text-blue-600"
+                        border="border-blue-400"
+                      />
                     </div>
                   </div>
+                </div>
 
-                  <div className="mt-6 flex flex-wrap justify-between gap-3">
-                    <button
-                      onClick={() => navigate("/dashboard")}
-                      className="bg-gray-500 text-white py-2 px-6 rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 transition-colors duration-200"
-                    >
-                      Back to Dashboard
-                    </button>
+                {/* Review tabs */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                  <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-4">
+                    Review Answers
+                  </h3>
+                  <ResultTabs
+                    activeTab={activeTab}
+                    onTabChange={setActiveTab}
+                    counts={{
+                      correct: examStats.passed,
+                      incorrect: examStats.failed,
+                      unattempted: examStats.unattempted,
+                    }}
+                    filters={questionFilters}
+                    userAnswers={userAnswers}
+                  />
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex flex-wrap gap-3 justify-between">
+                  <button
+                    onClick={() => navigate("/dashboard")}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors duration-200"
+                  >
+                    ← Dashboard
+                  </button>
+                  <div className="flex gap-3">
                     <button
                       onClick={() => navigate("/exams")}
-                      className="bg-blue-600 text-white py-2 px-6 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition-colors duration-200"
+                      className="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors duration-200"
                     >
-                      Take Another Exam
+                      New Exam
                     </button>
                     <button
                       onClick={restartQuiz}
-                      className="bg-[#66934e] text-white py-2 px-6 rounded-lg hover:bg-[#558040] focus:outline-none focus:ring-2 focus:ring-[#66934e] focus:ring-opacity-50 transition-colors duration-200"
+                      className="px-5 py-2.5 rounded-xl bg-[#66934e] text-white text-sm font-medium hover:bg-[#558040] transition-colors duration-200"
                     >
-                      Retake Exam
+                      Retake
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
       </main>
 
+      {/* ── Submit footer ── */}
       {!isQuizEnded && (
         <div
           ref={footerRef}
-          className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 py-4 px-4 flex justify-center z-30"
+          className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-sm border-t border-gray-200 py-3 px-4 z-30"
         >
-          <div className="max-w-6xl w-full flex justify-center">
+          <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
+            <p className="text-xs text-gray-400 hidden sm:block">
+              {examStats.attempted} of {totalQuestionsSafe} answered
+            </p>
             <button
-              onClick={handleSubmitExam}
+              onClick={() => setShowConfirmModal(true)}
               disabled={isSubmitting}
-              className={`bg-[#66934e] text-white py-3 px-8 rounded-lg text-lg font-medium shadow-md hover:bg-[#558040] focus:outline-none focus:ring-2 focus:ring-[#66934e] focus:ring-opacity-50 transition-colors duration-200 ${
+              className={`ml-auto flex items-center gap-2 bg-[#66934e] text-white py-2.5 px-7 rounded-xl font-semibold text-sm shadow-sm hover:bg-[#558040] focus:outline-none focus:ring-2 focus:ring-[#66934e] focus:ring-offset-2 transition-all duration-200 ${
                 isSubmitting ? "opacity-70 cursor-not-allowed" : ""
               }`}
             >
               {isSubmitting ? (
-                <span className="flex items-center">
+                <>
                   <svg
-                    className="animate-spin -ml-1 mr-2 h-5 w-5 text-white"
+                    className="animate-spin h-4 w-4 text-white"
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
                     viewBox="0 0 24 24"
                   >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    />
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
-                  Submitting...
-                </span>
+                  Submitting…
+                </>
               ) : (
                 "Submit Exam"
               )}
